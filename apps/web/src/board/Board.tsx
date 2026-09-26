@@ -430,6 +430,45 @@ const THEMES: Array<{ pref: ThemePref; label: string; icon: string }> = [
   { pref: "dark", label: "Theme: dark", icon: "☾" },
 ]
 
+/** Share this board: its link as a QR code for phones, plus copy. */
+function ShareButton() {
+  const [qr, setQr] = useState<string | null>(null)
+  const open = async () => {
+    const QRCode = (await import("qrcode")).default
+    setQr(await QRCode.toDataURL(location.href, { margin: 1, width: 240 }))
+  }
+  return (
+    <>
+      <button
+        type="button"
+        onClick={open}
+        className="rounded-md border border-[var(--panel-border)] px-2 py-0.5 text-xs hover:bg-black/5 dark:hover:bg-white/10"
+      >
+        Share
+      </button>
+      {qr && (
+        <div
+          data-ui
+          className="pointer-events-auto fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={() => setQr(null)}
+        >
+          <div
+            className="flex flex-col items-center gap-3 rounded-2xl border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <span className="text-sm font-medium">Scan to join this board</span>
+            <img src={qr} alt="QR code for this board's link" className="h-60 w-60 rounded-lg bg-white p-2" />
+            <span className="max-w-60 break-all text-center text-[11px] text-[var(--muted)]">{location.href}</span>
+            <button type="button" onClick={() => setQr(null)} className="text-xs text-[var(--muted)] hover:text-[var(--ink)]">
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+    </>
+  )
+}
+
 /** System → light → dark. System (the default) follows the OS live. */
 function ThemeToggle() {
   const [pref, setPref] = useState<ThemePref>(loadTheme)
@@ -478,6 +517,7 @@ function TopBar(props: { roomId: string; users: User[]; selfId: string | null; s
         >
           {copied ? "Copied" : "Copy link"}
         </button>
+        <ShareButton />
         <ThemeToggle />
         {props.status !== "open" && (
           <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-xs text-amber-600 dark:text-amber-400">

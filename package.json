@@ -10,10 +10,13 @@
     "test": "bun test",
     "typecheck": "tsc -p .",
     "check": "bun run typecheck && bun test",
-    "probe": "bun --env-file=.env apps/server/scripts/probe.ts"
+    "probe": "bun --env-file=.env apps/server/scripts/probe.ts",
+    "share": "bun scripts/share.ts"
   },
   "devDependencies": {
     "@types/bun": "^1.4.2",
+    "@types/qrcode": "1.5.6",
+    "qrcode": "1.5.4",
     "typescript": "^5.9.3"
   },
   "packageManager": "bun@1.4.2"
