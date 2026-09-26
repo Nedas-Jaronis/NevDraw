@@ -1,11 +1,12 @@
 import { HttpServer } from "@effect/platform"
 import { type ClientMessage, decodeServerMessage, encodeClientMessage, type ServerMessage } from "@rtw/shared"
-import { Effect, Either, ManagedRuntime } from "effect"
+import { Effect, Either, type Layer, ManagedRuntime } from "effect"
 import { makeApp } from "../src/app.ts"
+import { type BoardStore, makeMemoryStore } from "../src/BoardStore.ts"
 
 /** Boots the real server on a random port for protocol-level tests. */
-export async function startServer() {
-  const runtime = ManagedRuntime.make(makeApp({ port: 0 }))
+export async function startServer(options: { store?: Layer.Layer<BoardStore> } = {}) {
+  const runtime = ManagedRuntime.make(makeApp({ port: 0, store: options.store ?? makeMemoryStore() }))
   const address = await runtime.runPromise(Effect.map(HttpServer.HttpServer, (s) => s.address))
   if (address._tag !== "TcpAddress") throw new Error("expected a TCP address")
   return {
