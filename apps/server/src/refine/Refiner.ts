@@ -68,7 +68,7 @@ export function openAiCompatible(options: { baseUrl: string; apiKey: string; mod
   const url = `${options.baseUrl.replace(/\/+$/, "")}/chat/completions`
   return {
     enabled: true,
-    name: `openai-compat:${options.model}`,
+    name: `openai-compat:${options.model} @ ${new URL(url).host}`,
     refine: (input) =>
       Effect.tryPromise({
         try: async (signal) => {

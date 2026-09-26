@@ -7,6 +7,7 @@ test("durations read from the label", () => {
   expect(durationDisplay("1 hour 30 min")).toBe("1:30:00")
   expect(durationDisplay("90 sec break")).toBe("01:30")
   expect(durationDisplay("pomodoro timer")).toBeNull()
+  expect(durationDisplay("25-minute timer")).toBe("25:00")
 })
 
 test("stat values read from the label", () => {

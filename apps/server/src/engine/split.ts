@@ -24,7 +24,7 @@ export type Piece = {
   text: string
   connector: Connector
   /** For "edge" pieces: the arrow's kind and the index of its source piece. */
-  edge?: { kind: EdgeKind; from: number }
+  edge?: { kind: EdgeKind; from: number; label?: string }
   /** "add a form to @landing-page": the @handle this piece goes inside. */
   into?: string
   /** "a server and a database, being server and sql": what this element is called (here "sql"). */
@@ -89,8 +89,13 @@ const META =
 const CONNECT_RECENT =
   /^(?:connect(?:ed|s)?|link(?:ed)?|hook(?:ed)? up|wire(?:d)?(?: up)?|join(?:ed)?|tie)\s+(?:them|these|those|both|everything|all(?: of them)?|the two|it all)(?:\s+(?:together|up|all))?$/i
 
-/** "connect X and Y" / "link X to Y" → the ordinary relation "X connects to Y". */
-const CONNECT_PAIR = /^(?:connect(?:ed|s)?|link(?:ed)?|hook(?:ed)? up|wire(?:d)?(?: up)?|join(?:ed)?)\s+(.+?)\s+(?:to|and|with)\s+(.+)$/i
+/** "connect X and Y (together)" / "link X to Y" → the ordinary relation "X connects to Y". */
+const CONNECT_PAIR =
+  /^(?:connect(?:ed|s)?|link(?:ed)?|hook(?:ed)? up|wire(?:d)?(?: up)?|join(?:ed)?)\s+(.+?)\s+(?:to|and|with)\s+(.+?)(?:\s+(?:together|up))?$/i
+
+/** "X and Y (are) linked together" → "X connects to Y". */
+const PAIR_LINKED =
+  /^(.+?)\s+(?:and|&|with|to)\s+(.+?)\s+(?:are\s+|is\s+|should be\s+|get\s+)?(?:linked|connected|hooked up|wired(?: up)?|joined)(?:\s+(?:together|up))?$/i
 
 /** One sentence in canonical form: no lead-in, connect commands rewritten. */
 /** "a diagram of …" / "a flowchart showing …" at the start: keep only what it's of. */
@@ -100,7 +105,7 @@ const META_PREFIX =
 export function normalizeSentence(sentence: string): { kind: "text"; text: string } | { kind: "connect-recent" } {
   const t = sentence.replace(LEAD_IN, "").replace(META_PREFIX, "").trim()
   if (CONNECT_RECENT.test(t)) return { kind: "connect-recent" }
-  const pair = CONNECT_PAIR.exec(t)
+  const pair = CONNECT_PAIR.exec(t) ?? PAIR_LINKED.exec(t)
   if (pair) return { kind: "text", text: `${pair[1]} connects to ${pair[2]}` }
   return { kind: "text", text: t }
 }
@@ -132,6 +137,8 @@ export function split(text: string): Piece[] {
     let connector: Connector = "start"
     /** The current arrow kind while listing targets ("writes to B and C"). */
     let kind: EdgeKind | null = null
+    /** "connects to" reads better as "connects" than as the generic "calls". */
+    let verbLabel: string | undefined
     /** Source of the current arrows: the subject that "and <verb> …" continues from. */
     let subject: number | null = null
     let prev: number | null = null
@@ -145,6 +152,7 @@ export function split(text: string): Piece[] {
           // continuing a list of relations ("… and publishes to …"), which start at the subject.
           if (connector !== "edge" || kind === null) subject = prev
           kind = k
+          verbLabel = /^\s*connect/i.test(part) ? "connects" : undefined
           connector = "edge"
         } else if (connector !== "edge") {
           connector = prev === null ? "start" : CHILD_JOINER.test(part) ? "with" : "and"
@@ -164,7 +172,7 @@ export function split(text: string): Piece[] {
       // incoming arrow and the source of the next one.
       const startsClause = verbKind(parts[i + 1] ?? "") !== null
       if (connector === "edge" && kind && subject !== null) {
-        pieces.push({ index, text: t, connector: "edge", edge: { kind, from: subject } })
+        pieces.push({ index, text: t, connector: "edge", edge: { kind, from: subject, ...(verbLabel ? { label: verbLabel } : {}) } })
         if (startsClause) kind = null
       } else {
         pieces.push({
