@@ -66,5 +66,5 @@ export function interpret(input: {
     confidence: Math.round(answers[i]!.nodeType.confidence * 100) / 100,
     source: answers[i]!.source,
   }))
-  return { graph: assemble(pieces, answers, input.handles), memory, missing, debug }
+  return { graph: assemble(pieces, answers, input.handles), memory, missing, debug, pieces }
 }

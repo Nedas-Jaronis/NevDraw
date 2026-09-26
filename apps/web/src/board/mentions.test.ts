@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { activeMention, insertMention, matchHandles, referencedHandles } from "./mentions.ts"
+import { acceptSuggestion, activeMention, insertMention, matchHandles, referencedHandles } from "./mentions.ts"
 
 const options = [
   { handle: "@landing-page", label: "Landing page", type: "page" },
@@ -30,4 +30,13 @@ test("inserting replaces the partial token and adds a space", () => {
 
 test("only known handles count as references", () => {
   expect(referencedHandles("api writes to @postgres and @nope, @postgres", new Set(["@postgres"]))).toEqual(["@postgres"])
+})
+
+test("accepting a suggestion rewrites the last plain mention into the handle", () => {
+  const s = { text: "postgres", handle: "@postgres" }
+  expect(acceptSuggestion("api writes to postgres", s)).toBe("api writes to @postgres")
+  expect(acceptSuggestion("postgres backup; api writes to Postgres now", s)).toBe("postgres backup; api writes to @postgres now")
+  expect(acceptSuggestion("api writes to @postgres", s)).toBe("api writes to @postgres")
+  expect(acceptSuggestion("the landing  page", { text: "landing page", handle: "@landing-page" })).toBe("the @landing-page")
+  expect(acceptSuggestion("postgresql", s)).toBe("postgresql")
 })

@@ -24,6 +24,7 @@ function socketUrl(roomId: string) {
 export function useRoom(roomId: string, identity: Identity) {
   const [state, dispatch] = useReducer(reducer, initialRoomState)
   const wsRef = useRef<WebSocket | null>(null)
+  const pending = useRef<ClientMessage[]>([])
 
   useEffect(() => {
     let attempt = 0
@@ -36,6 +37,7 @@ export function useRoom(roomId: string, identity: Identity) {
       ws.onopen = () => {
         attempt = 0
         ws.send(encodeClientMessage(new Join(identity)))
+        for (const m of pending.current.splice(0)) ws.send(encodeClientMessage(m))
       }
       ws.onmessage = (e) => {
         const msg = decodeServerMessage(String(e.data))
@@ -60,7 +62,15 @@ export function useRoom(roomId: string, identity: Identity) {
 
   const send = useCallback((msg: ClientMessage) => {
     const ws = wsRef.current
-    if (ws?.readyState === WebSocket.OPEN) ws.send(encodeClientMessage(msg))
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(encodeClientMessage(msg))
+      return
+    }
+    // Not connected yet (or reconnecting): keep it for when we are. Only the latest
+    // input and cursor matter, so those replace earlier ones.
+    const q = pending.current.filter((m) => !(m._tag === msg._tag && (msg._tag === "SetInput" || msg._tag === "MoveCursor")))
+    q.push(msg)
+    pending.current = q.slice(-50)
   }, [])
 
   /** Apply a server-shaped message locally before the server confirms it (e.g. a drag release). */

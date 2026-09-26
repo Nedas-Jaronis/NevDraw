@@ -1,5 +1,12 @@
 import { useMemo, useRef, useState } from "react"
-import { activeMention, type HandleOption, insertMention, matchHandles, referencedHandles } from "./mentions.ts"
+import {
+  acceptSuggestion,
+  activeMention,
+  type HandleOption,
+  insertMention,
+  matchHandles,
+  referencedHandles,
+} from "./mentions.ts"
 
 /**
  * This user's input. Every change is sent (the server turns it into a draft
@@ -9,6 +16,8 @@ import { activeMention, type HandleOption, insertMention, matchHandles, referenc
 export function InputBox(props: {
   color: string
   handles: readonly HandleOption[]
+  /** "link to @x?" chips for this input (Tab / → accepts the first). */
+  suggestions: readonly { text: string; handle: string }[]
   onChange: (text: string) => void
   onCommit: () => void
   onDiscard: () => void
@@ -22,8 +31,10 @@ export function InputBox(props: {
 
   const mention = activeMention(text, caret)
   const matches = useMemo(() => (mention ? matchHandles(mention.query, props.handles) : []), [mention?.query, props.handles])
-  const open = mention !== null && matches.length > 0 && dismissed !== mention.start
   const known = useMemo(() => new Set(props.handles.map((h) => h.handle)), [props.handles])
+  // A token that already names a handle exactly is complete: no need to offer it again.
+  const open =
+    mention !== null && matches.length > 0 && dismissed !== mention.start && !known.has(`@${mention.query}`)
   const refs = referencedHandles(text, known)
   const byHandle = useMemo(() => new Map(props.handles.map((h) => [h.handle, h])), [props.handles])
 
@@ -33,6 +44,15 @@ export function InputBox(props: {
     setActive(0)
     props.onChange(next)
   }
+
+  const accept = (sug: { text: string; handle: string }) => {
+    const next = acceptSuggestion(text, sug)
+    if (next === text) return
+    update(next, next.length)
+    props.onHighlight(null)
+    requestAnimationFrame(() => inputRef.current?.setSelectionRange(next.length, next.length))
+  }
+  const chips = open ? [] : props.suggestions.filter((x) => !text.toLowerCase().includes(x.handle))
 
   const choose = (o: HandleOption) => {
     if (!mention) return
@@ -45,6 +65,27 @@ export function InputBox(props: {
   return (
     <div className="pointer-events-none absolute inset-x-0 bottom-0 z-40 flex justify-center p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
       <div data-ui className="pointer-events-auto relative w-full max-w-xl">
+        {chips.length > 0 && (
+          <div className="absolute inset-x-0 bottom-full mb-2 flex flex-wrap gap-1.5" role="group" aria-label="Link suggestions">
+            {chips.map((c, i) => (
+              <button
+                key={c.handle}
+                type="button"
+                onPointerDown={(e) => {
+                  e.preventDefault()
+                  accept(c)
+                }}
+                onPointerEnter={() => props.onHighlight(c.handle)}
+                onPointerLeave={() => props.onHighlight(null)}
+                className="flex items-center gap-1.5 rounded-full border border-[var(--panel-border)] bg-[var(--panel)] px-3 py-1 text-xs shadow-sm hover:border-[var(--ink)]/30"
+              >
+                <span className="text-[var(--muted)]">link to</span>
+                <span className="font-medium">{c.handle}</span>
+                {i === 0 && <kbd className="ml-1 rounded bg-black/5 px-1 font-sans text-[10px] text-[var(--muted)] dark:bg-white/10">Tab</kbd>}
+              </button>
+            ))}
+          </div>
+        )}
         {open && (
           <ul
             role="listbox"
@@ -108,6 +149,12 @@ export function InputBox(props: {
                   props.onHighlight(null)
                   return
                 }
+              }
+              const atEnd = (e.currentTarget.selectionStart ?? 0) === text.length
+              if (chips.length > 0 && (e.key === "Tab" || (e.key === "ArrowRight" && atEnd))) {
+                e.preventDefault()
+                accept(chips[0]!)
+                return
               }
               if (e.key === "Enter" && text.trim()) {
                 e.preventDefault()

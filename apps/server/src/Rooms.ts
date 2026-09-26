@@ -13,6 +13,8 @@ import {
   type Point,
   REGISTRY,
   type ServerMessage,
+  type Suggestion,
+  SuggestionsUpdated,
   uniqueHandle,
   type User,
   UserJoined,
@@ -27,6 +29,7 @@ import type { BoardSummaryItem } from "./refine/prompt.ts"
 import { Refiner } from "./refine/Refiner.ts"
 import { type BoardView, type DraftMemory, type HandleInfo, interpret, materialize, type PieceMemory } from "./engine/index.ts"
 import { avoid, estimateSizes, pushAside, type Rect } from "./engine/layout.ts"
+import { mergeSuggestions, suggestLinks } from "./engine/suggest.ts"
 
 /** One connected socket in a room. Messages are queued; the socket's own fiber drains them. */
 type Client = {
@@ -240,6 +243,17 @@ export const RoomsLive = Layer.effect(
         let llmResult: { text: string; graph: EntryGraph } | null = null
         /** The instant (Jev/keyword) graph last shown, so the LLM can keep its keys. */
         let lastGraph: EntryGraph | null = null
+        /** Link suggestions last sent to this typist (only they see them). */
+        let lastSuggestions = "[]"
+
+        const sendSuggestions = (list: readonly Suggestion[]) =>
+          Effect.suspend(() => {
+            const json = JSON.stringify(list)
+            if (json === lastSuggestions) return Effect.void
+            lastSuggestions = json
+            const c = room.clients.get(user.id)
+            return c ? Queue.offer(c.outbox, new SuggestionsUpdated({ suggestions: list })) : Effect.void
+          })
 
         const cancelInflight = Effect.suspend(() => {
           const f = inflight
@@ -262,9 +276,11 @@ export const RoomsLive = Layer.effect(
           llmResult = null
           lastGraph = null
           room.memory.delete(user.id)
+          const hadSuggestions = lastSuggestions !== "[]"
+          const clearSuggestions = hadSuggestions ? sendSuggestions([]) : Effect.void
           return room.drafts.delete(user.id)
-            ? Effect.zipRight(broadcast(room, new DraftCleared({ userId: user.id })), relayout(room))
-            : Effect.void
+            ? Effect.all([broadcast(room, new DraftCleared({ userId: user.id })), relayout(room), clearSuggestions], { discard: true })
+            : clearSuggestions
         })
 
         /** Build and broadcast the draft from what's known now; returns the pieces still waiting on Jev. */
@@ -288,8 +304,14 @@ export const RoomsLive = Layer.effect(
             const draft: Draft = { userId: user.id, text, nodes: memory.nodes, edges: memory.edges }
             room.memory.set(user.id, memory)
             room.drafts.set(user.id, draft)
+            const known = new Set(room.handles.keys())
+            const named = [...room.nodes.values()].flatMap((n) => (n.handle ? [{ handle: n.handle, label: n.label }] : []))
+            const suggestions = mergeSuggestions(known, graph.suggestions, suggestLinks(r.pieces, named)).filter(
+              (x) => !text.toLowerCase().includes(x.handle),
+            )
             return broadcast(room, new DraftUpdated({ draft, debug: r.debug })).pipe(
               Effect.zipRight(relayout(room)),
+              Effect.zipRight(sendSuggestions(suggestions)),
               Effect.as(r.missing),
             )
           })
@@ -355,6 +377,7 @@ export const RoomsLive = Layer.effect(
             latest = null
             llmResult = null
             lastGraph = null
+            yield* sendSuggestions([])
             const draft = room.drafts.get(user.id)
             if (!draft || draft.nodes.length === 0) return
             // Elements this draft pushed aside stay where they were pushed.

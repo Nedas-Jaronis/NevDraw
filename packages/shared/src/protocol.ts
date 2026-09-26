@@ -1,5 +1,6 @@
 import { Schema } from "effect"
 import { BoardEdge, BoardNode, Draft } from "./board.ts"
+import { Suggestion } from "./entry.ts"
 
 /** A point in board (world) coordinates, independent of each viewer's pan/zoom. */
 export const Point = Schema.Struct({ x: Schema.Number, y: Schema.Number })
@@ -97,6 +98,11 @@ export class DraftUpdated extends Schema.TaggedClass<DraftUpdated>()("DraftUpdat
   debug: Schema.optional(Schema.Array(PieceDebug)),
 }) {}
 
+/** Only to the typist: plain words that probably mean an existing @handle ("link to @postgres?"). */
+export class SuggestionsUpdated extends Schema.TaggedClass<SuggestionsUpdated>()("SuggestionsUpdated", {
+  suggestions: Schema.Array(Suggestion),
+}) {}
+
 export class DraftCleared extends Schema.TaggedClass<DraftCleared>()("DraftCleared", { userId: Schema.String }) {}
 
 export class NodesCommitted extends Schema.TaggedClass<NodesCommitted>()("NodesCommitted", {
@@ -134,6 +140,7 @@ export const ServerMessage = Schema.Union(
   NodesUpdated,
   NodesRemoved,
   LayoutUpdated,
+  SuggestionsUpdated,
 )
 export type ServerMessage = typeof ServerMessage.Type
 
