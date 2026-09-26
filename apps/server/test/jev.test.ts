@@ -41,6 +41,7 @@ const answer = (type: PieceAnswers["nodeType"]["value"], confidence: number, sou
   layout: { value: "none", confidence: 0 },
   edgeKind: { value: "none", confidence: 1 },
   targetsHandle: 0,
+  accent: { value: "none", confidence: 1 },
   source,
 })
 

@@ -35,6 +35,32 @@ export function pieceStates(pieces: readonly Piece[], handles: readonly string[]
   }))
 }
 
+/**
+ * "Jev decides, code computes": when the LLM's reading replaces the instant
+ * one, values code read straight from the text (named colors, sequences,
+ * colon lists, collection item types) win over the LLM's guesses for the
+ * same element (same key).
+ */
+export function keepComputed(llm: EntryGraph, instant: EntryGraph): EntryGraph {
+  const computed = new Map(instant.nodes.map((n) => [n.key, n.props]))
+  return {
+    ...llm,
+    nodes: llm.nodes.map((n) => {
+      const c = computed.get(n.key)
+      if (!c) return n
+      return {
+        ...n,
+        props: {
+          ...n.props,
+          ...(c.color ? { color: c.color } : {}),
+          ...(c.items?.length ? { items: c.items } : {}),
+          ...(c.of ? { of: c.of } : {}),
+        },
+      }
+    }),
+  }
+}
+
 export type PieceDebug = { text: string; type: string; confidence: number; source: "keyword" | "jev" }
 
 /**

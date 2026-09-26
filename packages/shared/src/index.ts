@@ -1,5 +1,7 @@
 export * from "./board.ts"
+export * from "./color.ts"
 export * from "./entry.ts"
 export * from "./handles.ts"
+export * from "./oklch.ts"
 export * from "./protocol.ts"
 export * from "./registry.ts"

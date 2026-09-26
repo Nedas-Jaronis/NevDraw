@@ -1,4 +1,5 @@
-import { type EntryEdge, type EntryGraph, type EntryNode, type NodeType, REGISTRY } from "@rtw/shared"
+import { ACCENTS, type EntryEdge, type EntryGraph, type EntryNode, type NodeType, REGISTRY } from "@rtw/shared"
+import { collectionOf, explicitColor, isModifierOnly, sequenceItems, withoutValues } from "./modifiers.ts"
 import { labelFrom } from "../classify/keywords.ts"
 import type { PieceAnswers } from "./answers.ts"
 import type { Piece } from "./split.ts"
@@ -72,7 +73,7 @@ export function classificationText(text: string): string {
 function cleanLabel(text: string, repeated: boolean): string {
   // An unknown "@thing" is just text: the server never invents references.
   // An @token in a label is just its words: the server never invents references.
-  const plain = text.replace(/@([a-z0-9][a-z0-9-]*)/gi, (_, h: string) => h.replace(/-/g, " "))
+  const plain = withoutValues(text.replace(/@([a-z0-9][a-z0-9-]*)/gi, (_, h: string) => h.replace(/-/g, " "))) || text
   // Keep numbers that are values ("25 min timer"); drop the count of repeats.
   let t = (repeated ? plain.replace(COUNT, "") : plain).replace(LAYOUT_WORDS, " ").replace(/\s+/g, " ").trim()
   if (repeated) t = t.replace(/(\w{3,}[^s])s$/i, "$1")
@@ -165,8 +166,20 @@ export function assemble(
       prev = null
       return
     }
-    const a = answers[i]
-    if (!a) return
+    const a0 = answers[i]
+    if (!a0) return
+    // "with increments of 15": values for the element before it, not a new element.
+    if (prev && !piece.edge && piece.connector !== "start" && isModifierOnly(piece.text)) {
+      const target = byKey.get(prev.key)
+      const values = target ? sequenceItems(piece.text, target.props.of ?? target.type) : null
+      if (target && values) {
+        target.props = { ...target.props, items: values }
+        return
+      }
+    }
+    // "a table of timers": the collection word is the head noun; the rest is its item type.
+    const collection = collectionOf(piece.text)
+    const a = collection ? { ...a0, nodeType: { value: collection.type, confidence: 1 }, isContainer: 0 } : a0
     const container = a.isContainer >= YES
     const edge = piece.connector === "edge" ? piece.edge : undefined
 
@@ -226,7 +239,24 @@ export function assemble(
       return
     }
 
-    const node: MutableNode = { key, type: a.nodeType.value, label: aliasLabel(cleanLabel(piece.text, false), piece.alias), parent, props: {} }
+    // Values code can read straight from the text: items, color.
+    // Named colors always; implied ones ("delete" → red) only when Jev is sure, and not on whole pages/sections.
+    const implied =
+      a.accent.value !== "none" && a.accent.confidence >= 0.85 && !REGISTRY[a.nodeType.value].container ? ACCENTS[a.accent.value].hex : null
+    const color = explicitColor(piece.text) ?? implied
+    const items = piece.items ?? sequenceItems(piece.text, collection?.of ?? a.nodeType.value) ?? undefined
+    const node: MutableNode = {
+      key,
+      type: a.nodeType.value,
+      label: aliasLabel(cleanLabel(piece.text, false), piece.alias),
+      parent,
+      props: {
+        ...(collection?.of ? { of: collection.of } : {}),
+        ...(collection?.layout ? { layout: collection.layout } : {}),
+        ...(items ? { items } : {}),
+        ...(color ? { color } : {}),
+      },
+    }
     nodes.push(node)
     byKey.set(key, node)
     keyOfPiece.set(piece.index, key)

@@ -2,6 +2,7 @@ import { type BoardNode, REGISTRY } from "@rtw/shared"
 import { AnimatePresence, motion } from "motion/react"
 import { createContext, type ReactNode, useContext } from "react"
 import type { Item, Tree } from "./tree.ts"
+import { onColor } from "./values.ts"
 import { Wire } from "./wires.tsx"
 
 export const CONTAINER_WIDTH = 320
@@ -98,6 +99,8 @@ function Frame(props: { node: BoardNode; draft: boolean; root?: boolean; selecte
           : "rounded-xl bg-[var(--surface)] p-2.5"
       }`}
       style={{
+        // An element's accent (from the prompt) colors it and everything inside it.
+        ...(node.props.color ? ({ "--a": node.props.color, "--on-a": onColor(node.props.color) } as React.CSSProperties) : {}),
         border: draft ? `1.5px dashed ${node.authorColor}` : "1px solid var(--hairline)",
         ...(lit ? { boxShadow: `0 0 0 3px color-mix(in srgb, ${hl.color} 35%, transparent)` } : {}),
       }}

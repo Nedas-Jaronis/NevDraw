@@ -3,6 +3,12 @@ import { EdgeKind, Layout, NodeType } from "./registry.ts"
 
 export const NodeProps = Schema.Struct({
   layout: Schema.optional(Layout),
+  /** A collection's item type: "a table of timers" → table, of: timer. */
+  of: Schema.optional(NodeType),
+  /** Concrete items/values: rows of a table, options of a poll, entries of a checklist. */
+  items: Schema.optional(Schema.Array(Schema.String.pipe(Schema.maxLength(60))).pipe(Schema.maxItems(12))),
+  /** Accent color (hex) from the prompt: "a red button", "tiffany blue hero", "danger" → red. */
+  color: Schema.optional(Schema.String.pipe(Schema.pattern(/^#[0-9a-f]{6}$/i))),
 })
 export type NodeProps = typeof NodeProps.Type
 

@@ -1,4 +1,5 @@
 import type { EdgeKind } from "@rtw/shared"
+import { colonList } from "./modifiers.ts"
 
 /**
  * Deterministic splitter: breaks an entry into pieces, remembering how each
@@ -29,6 +30,8 @@ export type Piece = {
   into?: string
   /** "a server and a database, being server and sql": what this element is called (here "sql"). */
   alias?: string
+  /** "a checklist: milk, eggs and bread": the element's items. */
+  items?: string[]
 }
 
 /**
@@ -129,8 +132,11 @@ export function split(text: string): Piece[] {
       continue
     }
     // Peel off "…, being X and Y" before splitting; it names this sentence's elements.
-    const alias = ALIAS.exec(normalized.text)
-    const sentence = alias ? normalized.text.slice(0, alias.index) : normalized.text
+    // "a checklist: milk, eggs and bread": the list belongs to the element before the colon.
+    const colon = colonList(normalized.text)
+    const base = colon ? colon.head : normalized.text
+    const alias = ALIAS.exec(base)
+    const sentence = alias ? base.slice(0, alias.index) : base
     const aliases = alias ? aliasItems(alias[1]!) : []
     const firstOfSentence = pieces.length
     const parts = sentence.split(JOINER)
@@ -185,6 +191,10 @@ export function split(text: string): Piece[] {
         kind = null
       }
       prev = index
+    }
+    if (colon && pieces.length > firstOfSentence) {
+      const last = pieces.length - 1
+      pieces[last] = { ...pieces[last]!, items: colon.items }
     }
     // Name this sentence's elements in order.
     aliases.forEach((a, k) => {

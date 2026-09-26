@@ -125,7 +125,7 @@ export function materialize(input: {
       label: n.label,
       parent,
       order,
-      props: { layout: n.props.layout ?? REGISTRY[n.type].defaultLayout },
+      props: { ...n.props, layout: n.props.layout ?? REGISTRY[n.type].defaultLayout },
       x,
       y,
       pinned: before?.pinned ?? false,
