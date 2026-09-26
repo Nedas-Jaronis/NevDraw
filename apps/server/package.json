@@ -3,8 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "PORT=3001 bun --watch src/main.ts",
-    "start": "bun src/main.ts"
+    "dev": "PORT=3001 bun --env-file=../../.env --watch src/main.ts",
+    "start": "bun --env-file=../../.env src/main.ts"
   },
   "dependencies": {
     "@effect/platform": "^0.97.2",

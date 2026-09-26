@@ -8,6 +8,7 @@ Requires [Bun](https://bun.sh) 1.2+.
 
 ```bash
 bun install
+cp .env.example .env   # optional: add Jev / Gemini / gpt-oss keys
 bun dev          # web on http://localhost:3000, Effect server on :3001 (/ws forwarded)
 ```
 
