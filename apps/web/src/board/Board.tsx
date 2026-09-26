@@ -1,7 +1,11 @@
-import { MoveCursor, type Point, type User } from "@rtw/shared"
+import { type BoardNode, Commit, Discard, MoveCursor, type Point, SetInput, type User } from "@rtw/shared"
+import { AnimatePresence } from "motion/react"
 import { useEffect, useRef, useState } from "react"
 import type { Identity } from "../identity.ts"
+import type { RoomState } from "../room/state.ts"
 import { useRoom } from "../room/useRoom.ts"
+import { InputBox } from "./InputBox.tsx"
+import { NodeView } from "./NodeView.tsx"
 
 /** Pan/zoom of this viewer. Identity for now; #4 makes it interactive. */
 export type Camera = { x: number; y: number; zoom: number }
@@ -28,6 +32,10 @@ export function Board({ roomId, identity }: { roomId: string; identity: Identity
   useEffect(() => () => cancelAnimationFrame(frame.current), [])
 
   const others = [...state.users.values()].filter((u) => u.id !== state.selfId)
+  const self = state.selfId ? state.users.get(state.selfId) : undefined
+
+  // New top-level drafts appear just above the input box, in this viewer's view.
+  const anchor = () => toWorld(camera, window.innerWidth / 2, window.innerHeight / 2 - 60)
 
   return (
     <div
@@ -35,10 +43,42 @@ export function Board({ roomId, identity }: { roomId: string; identity: Identity
       onPointerMove={(e) => queueCursor(toWorld(camera, e.clientX, e.clientY))}
       onPointerLeave={() => queueCursor(null)}
     >
+      <div
+        className="absolute left-0 top-0 origin-top-left"
+        style={{ transform: `translate(${camera.x}px, ${camera.y}px) scale(${camera.zoom})` }}
+      >
+        <AnimatePresence>
+          {renderList(state).map(({ node, draft, typing }) => (
+            <NodeView key={node.id} node={node} draft={draft} typing={typing} />
+          ))}
+        </AnimatePresence>
+      </div>
       {others.map((u) => u.cursor && <RemoteCursor key={u.id} user={u} at={toScreen(camera, u.cursor)} />)}
+      <InputBox
+        color={self?.color ?? identity.color}
+        onChange={(text) => send(new SetInput({ text, anchor: anchor() }))}
+        onCommit={() => send(new Commit())}
+        onDiscard={() => send(new Discard())}
+      />
       <TopBar roomId={roomId} users={[...state.users.values()]} selfId={state.selfId} status={state.status} />
     </div>
   )
+}
+
+/**
+ * Committed nodes plus everyone's drafts, keyed by node id. A committed node
+ * wins over a draft with the same id (they briefly coexist on commit), so the
+ * element stays mounted and animates from dashed to solid.
+ */
+function renderList(state: RoomState): Array<{ node: BoardNode; draft: boolean; typing?: string }> {
+  const out = new Map<string, { node: BoardNode; draft: boolean; typing?: string }>()
+  for (const d of state.drafts.values()) {
+    const who = state.users.get(d.userId)
+    const typing = d.userId !== state.selfId && who ? `${who.name} is typing: ${d.text}` : undefined
+    d.nodes.forEach((node, i) => out.set(node.id, { node, draft: true, ...(i === 0 && typing ? { typing } : {}) }))
+  }
+  for (const node of state.nodes.values()) out.set(node.id, { node, draft: false })
+  return [...out.values()]
 }
 
 function RemoteCursor({ user, at }: { user: User; at: Point }) {
@@ -74,8 +114,8 @@ function TopBar(props: { roomId: string; users: User[]; selfId: string | null; s
   return (
     <div className="pointer-events-none absolute inset-x-0 top-0 z-40 flex items-start justify-between gap-3 p-3">
       <div className="pointer-events-auto flex items-center gap-2 rounded-xl border border-[var(--panel-border)] bg-[var(--panel)] px-3 py-2 shadow-sm">
-        <span className="font-semibold">Live Wireframes</span>
-        <span className="text-sm text-[var(--muted)]">/ {props.roomId}</span>
+        <span className="whitespace-nowrap font-semibold">Live Wireframes</span>
+        <span className="hidden text-sm text-[var(--muted)] sm:inline">/ {props.roomId}</span>
         <button
           type="button"
           onClick={copy}

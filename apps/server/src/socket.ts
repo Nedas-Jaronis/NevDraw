@@ -1,5 +1,5 @@
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "@effect/platform"
-import { decodeClientMessage, encodeServerMessage, type ServerMessage } from "@rtw/shared"
+import { type ClientMessage, decodeClientMessage, encodeServerMessage, type ServerMessage } from "@rtw/shared"
 import { Effect, Either, Queue, Schema } from "effect"
 import { Rooms, type Session } from "./Rooms.ts"
 
@@ -11,6 +11,9 @@ const textDecoder = new TextDecoder()
  * GET /ws/:roomId, upgraded to a WebSocket. The first message must be Join;
  * everything after is routed to the room session. Leaving is guaranteed on
  * any disconnect or error.
+ *
+ * Socket handlers run concurrently, so incoming messages go through an inbox
+ * drained by one fiber: each client's messages are applied strictly in order.
  */
 export const roomSocket = Effect.gen(function* () {
   const { roomId } = yield* HttpRouter.schemaPathParams(RoomParams)
@@ -26,23 +29,35 @@ export const roomSocket = Effect.gen(function* () {
   )
 
   let session: Session | null = null
+  const handle = (msg: ClientMessage): Effect.Effect<void> => {
+    if (msg._tag === "Join") {
+      if (session) return Effect.void
+      return Effect.map(rooms.join(roomId, { name: msg.name, color: msg.color }, outbox), (s) => {
+        session = s
+      })
+    }
+    if (!session) return Effect.void
+    switch (msg._tag) {
+      case "MoveCursor":
+        return session.moveCursor(msg.cursor)
+      case "SetInput":
+        return session.setInput(msg.text, msg.anchor)
+      case "Commit":
+        return session.commit
+      case "Discard":
+        return session.discard
+    }
+  }
+
+  const inbox = yield* Queue.unbounded<ClientMessage>()
+  yield* Queue.take(inbox).pipe(Effect.flatMap(handle), Effect.forever, Effect.forkScoped)
 
   yield* socket
-    .runRaw((data) =>
-      Effect.gen(function* () {
-        const parsed = decodeClientMessage(typeof data === "string" ? data : textDecoder.decode(data))
-        if (Either.isLeft(parsed)) return yield* Effect.logWarning("dropping malformed client message")
-        const msg = parsed.right
-        switch (msg._tag) {
-          case "Join":
-            if (!session) session = yield* rooms.join(roomId, { name: msg.name, color: msg.color }, outbox)
-            return
-          case "MoveCursor":
-            if (session) yield* session.moveCursor(msg.cursor)
-            return
-        }
-      }),
-    )
+    .runRaw((data) => {
+      const parsed = decodeClientMessage(typeof data === "string" ? data : textDecoder.decode(data))
+      if (Either.isLeft(parsed)) return Effect.logWarning("dropping malformed client message")
+      return Queue.offer(inbox, parsed.right)
+    })
     .pipe(
       Effect.catchAll(() => Effect.void),
       Effect.ensuring(Effect.suspend(() => session?.leave ?? Effect.void)),

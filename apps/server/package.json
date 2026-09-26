@@ -9,6 +9,8 @@
   "dependencies": {
     "@effect/platform": "^0.97.2",
     "@effect/platform-bun": "^0.91.2",
+    "@effect/sql": "0.52.1",
+    "@effect/sql-sqlite-bun": "0.53.0",
     "@rtw/shared": "workspace:*",
     "effect": "^3.22.2"
   }
