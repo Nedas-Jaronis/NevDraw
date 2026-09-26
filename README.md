@@ -19,6 +19,18 @@ bun run build && bun run start                    # http://localhost:3000
 cloudflared tunnel --url http://localhost:3000    # share the printed https://*.trycloudflare.com link
 ```
 
+## Using the board
+
+| Do | How |
+| --- | --- |
+| Add things | Type in the box at the bottom; drafts appear live for everyone, **Enter** commits, **Esc** discards |
+| Refer to an element | Type `@` for autocomplete (`add a form to @landing-page`, `make @x red`, `wrap @a @b into one box`) |
+| Select | Click; **Shift+click** to add; **drag on empty canvas** for a selection box; **Ctrl/⌘+A** for all |
+| Delete | **Delete / Backspace**, or the ✕ / the "N selected · Delete" pill |
+| Move | Drag an element (drags the whole selection) |
+| Pan / zoom | Scroll or trackpad; **Space+drag** or middle mouse to pan; **Ctrl/⌘+scroll** or pinch to zoom |
+| Theme | The ◐ / ☀ / ☾ button: system (default), light, dark |
+
 ## Keys and tuning
 
 All keys are optional and live in `.env` (see `.env.example`): `TYPESAFE_API_KEY` (Jev: instant drafts), `GPTOSS_API_KEY` (LLM cleanup pass: gpt-oss-120b, Cerebras by default). Without them the board runs on the built-in keyword classifier.
