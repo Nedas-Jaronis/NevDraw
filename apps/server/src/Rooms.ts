@@ -2,6 +2,8 @@ import {
   type BoardEdge,
   type BoardNode,
   CursorMoved,
+  type Displacement,
+  LayoutUpdated,
   type Draft,
   DraftCleared,
   DraftUpdated,
@@ -19,6 +21,7 @@ import { Context, Deferred, Effect, Fiber, Layer, Queue } from "effect"
 import { BoardStore } from "./BoardStore.ts"
 import { Classifier } from "./classify/Classifier.ts"
 import { type DraftMemory, interpret, materialize, type PieceMemory } from "./engine/index.ts"
+import { avoid, estimateSizes, pushAside, type Rect } from "./engine/layout.ts"
 
 /** One connected socket in a room. Messages are queued; the socket's own fiber drains them. */
 type Client = {
@@ -35,6 +38,8 @@ type Room = {
   drafts: Map<string, Draft>
   /** Which board id each of a user's draft keys became (server-only). */
   memory: Map<string, DraftMemory>
+  /** Committed elements currently pushed aside by drafts (derived, never saved). */
+  displaced: ReadonlyMap<string, { x: number; y: number }>
   /** Resolves once the committed layer has been loaded from the store. */
   ready: Deferred.Deferred<void>
 }
@@ -79,6 +84,24 @@ export const RoomsLive = Layer.effect(
         { discard: true },
       )
 
+    const displacementList = (m: ReadonlyMap<string, { x: number; y: number }>): Displacement[] =>
+      [...m].map(([id, p]) => ({ id, x: p.x, y: p.y }))
+
+    /** Recompute who drafts are pushing; broadcast only when it changes. */
+    const relayout = (room: Room) =>
+      Effect.suspend(() => {
+        const committed = [...room.nodes.values()]
+        const drafts = [...room.drafts.values()].flatMap((d) => d.nodes)
+        const next = pushAside({ committed, drafts, sizes: estimateSizes([...committed, ...drafts]) })
+        const same = next.size === room.displaced.size && [...next].every(([id, p]) => {
+          const q = room.displaced.get(id)
+          return q !== undefined && q.x === p.x && q.y === p.y
+        })
+        if (same) return Effect.void
+        room.displaced = next
+        return broadcast(room, new LayoutUpdated({ displaced: displacementList(next) }))
+      })
+
     const openRoom = (roomId: string) =>
       Effect.gen(function* () {
         const ready = yield* Deferred.make<void>()
@@ -93,6 +116,7 @@ export const RoomsLive = Layer.effect(
           edges: new Map(),
           drafts: new Map(),
           memory: new Map(),
+          displaced: new Map(),
           ready,
         }
         rooms.set(roomId, room)
@@ -102,6 +126,30 @@ export const RoomsLive = Layer.effect(
         yield* Deferred.succeed(ready, undefined)
         return room
       })
+
+    /**
+     * New top-level draft elements slide clear of pinned elements and other
+     * people's drafts (those never get pushed). Positions then stay put in
+     * the draft's memory, so they don't jump while typing continues.
+     */
+    const placeNewRoots = (room: Room, userId: string, prev: DraftMemory | undefined, next: DraftMemory): DraftMemory => {
+      const known = new Set(prev?.nodes.map((n) => n.id))
+      const fresh = next.nodes.filter((n) => n.parent === null && !known.has(n.id))
+      if (fresh.length === 0) return next
+      const others = [...room.drafts.values()].filter((d) => d.userId !== userId).flatMap((d) => d.nodes)
+      const pinned = [...room.nodes.values()].filter((n) => n.parent === null && n.pinned)
+      const sizes = estimateSizes([...next.nodes, ...others, ...room.nodes.values()])
+      const rectOf = (n: BoardNode): Rect => ({ x: n.x, y: n.y, ...(sizes.get(n.id) ?? { w: 240, h: 60 }) })
+      const obstacles = [...pinned, ...others.filter((n) => n.parent === null)].map(rectOf)
+      const shifted = new Map<string, { x: number; y: number }>()
+      for (const n of fresh) {
+        const p = avoid(rectOf(n), obstacles)
+        if (p.x !== n.x || p.y !== n.y) shifted.set(n.id, p)
+        obstacles.push({ ...rectOf(n), ...p })
+      }
+      if (shifted.size === 0) return next
+      return { ...next, nodes: next.nodes.map((n) => (shifted.has(n.id) ? { ...n, ...shifted.get(n.id)! } : n)) }
+    }
 
     const join = (roomId: string, profile: { name: string; color: string }, outbox: Queue.Queue<ServerMessage>) =>
       Effect.gen(function* () {
@@ -117,6 +165,7 @@ export const RoomsLive = Layer.effect(
             nodes: [...room.nodes.values()],
             edges: [...room.edges.values()],
             drafts: [...room.drafts.values()],
+            displaced: displacementList(room.displaced),
           }),
         )
         yield* broadcast(room, new UserJoined({ user }), user.id)
@@ -138,7 +187,9 @@ export const RoomsLive = Layer.effect(
           pieceMemory = new Map()
           latest = null
           room.memory.delete(user.id)
-          return room.drafts.delete(user.id) ? broadcast(room, new DraftCleared({ userId: user.id })) : Effect.void
+          return room.drafts.delete(user.id)
+            ? Effect.zipRight(broadcast(room, new DraftCleared({ userId: user.id })), relayout(room))
+            : Effect.void
         })
 
         /** Build and broadcast the draft from what's known now; returns the pieces still waiting on Jev. */
@@ -149,17 +200,20 @@ export const RoomsLive = Layer.effect(
             const r = interpret({ text, handles: [], peek: classifier.peek, memory: pieceMemory })
             pieceMemory = r.memory
             if (r.graph.nodes.length === 0) return Effect.as(clearDraft, [])
-            const memory = materialize({
-              graph: r.graph,
-              prev: room.memory.get(user.id),
-              anchor,
-              user: me,
-              newId: () => crypto.randomUUID(),
-            })
+            const prev = room.memory.get(user.id)
+            const memory = placeNewRoots(
+              room,
+              user.id,
+              prev,
+              materialize({ graph: r.graph, prev, anchor, user: me, newId: () => crypto.randomUUID() }),
+            )
             const draft: Draft = { userId: user.id, text, nodes: memory.nodes, edges: memory.edges }
             room.memory.set(user.id, memory)
             room.drafts.set(user.id, draft)
-            return Effect.as(broadcast(room, new DraftUpdated({ draft, debug: r.debug })), r.missing)
+            return broadcast(room, new DraftUpdated({ draft, debug: r.debug })).pipe(
+              Effect.zipRight(relayout(room)),
+              Effect.as(r.missing),
+            )
           })
 
         const session: Session = {
@@ -195,13 +249,25 @@ export const RoomsLive = Layer.effect(
             latest = null
             const draft = room.drafts.get(user.id)
             if (!draft || draft.nodes.length === 0) return
+            // Elements this draft pushed aside stay where they were pushed.
+            const committedNow = [...room.nodes.values()]
+            const pushed = pushAside({
+              committed: committedNow,
+              drafts: draft.nodes,
+              sizes: estimateSizes([...committedNow, ...draft.nodes]),
+            })
+            const moved = [...pushed].map(([id, p]) => ({ ...room.nodes.get(id)!, x: p.x, y: p.y }))
+            for (const n of moved) room.nodes.set(n.id, n)
+
             room.drafts.delete(user.id)
             room.memory.delete(user.id)
             for (const n of draft.nodes) room.nodes.set(n.id, n)
             for (const e of draft.edges) room.edges.set(e.id, e)
-            yield* store.upsert(roomId, draft.nodes, draft.edges)
+            yield* store.upsert(roomId, [...moved, ...draft.nodes], draft.edges)
+            if (moved.length) yield* broadcast(room, new NodesUpdated({ nodes: moved }))
             yield* broadcast(room, new NodesCommitted({ nodes: draft.nodes, edges: draft.edges }))
             yield* broadcast(room, new DraftCleared({ userId: user.id }))
+            yield* relayout(room)
           }),
 
           discard: Effect.zipRight(cancelInflight, clearDraft),
@@ -214,6 +280,7 @@ export const RoomsLive = Layer.effect(
               const moved = { ...n, x: Math.round(x), y: Math.round(y), pinned: true }
               room.nodes.set(id, moved)
               yield* broadcast(room, new NodesUpdated({ nodes: [moved] }), user.id)
+              yield* relayout(room)
               if (final) {
                 yield* store.upsert(roomId, [moved])
                 // The mover gets the canonical version once, on release.
@@ -235,6 +302,7 @@ export const RoomsLive = Layer.effect(
               for (const e of edgeIds) room.edges.delete(e)
               yield* store.remove(roomId, ids, edgeIds)
               yield* broadcast(room, new NodesRemoved({ ids, edgeIds }))
+              yield* relayout(room)
             }),
 
           leave: Effect.gen(function* () {

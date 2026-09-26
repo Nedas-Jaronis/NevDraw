@@ -30,7 +30,11 @@ export function buildTree(state: RoomState): Tree {
       items.set(node.id, first && typing ? { node, draft: true, typing } : { node, draft: true })
     }
   }
-  for (const node of state.nodes.values()) items.set(node.id, { node, draft: false })
+  for (const node of state.nodes.values()) {
+    // Committed elements a draft is pushing aside show at their pushed spot.
+    const d = state.displaced.get(node.id)
+    items.set(node.id, { node: d ? { ...node, x: d.x, y: d.y } : node, draft: false })
+  }
 
   const roots: Item[] = []
   const children = new Map<string, Item[]>()

@@ -58,6 +58,9 @@ export type ClientMessage = typeof ClientMessage.Type
 // Server → client
 // ---------------------------------------------------------------------------
 
+export const Displacement = Schema.Struct({ id: Schema.String, x: Schema.Number, y: Schema.Number })
+export type Displacement = typeof Displacement.Type
+
 /** Sent once after Join: who you are and the full room snapshot. */
 export class Welcome extends Schema.TaggedClass<Welcome>()("Welcome", {
   selfId: Schema.String,
@@ -67,6 +70,7 @@ export class Welcome extends Schema.TaggedClass<Welcome>()("Welcome", {
   edges: Schema.optionalWith(Schema.Array(BoardEdge), { default: () => [] }),
   /** Everyone's live drafts, so late joiners see ideas already forming. */
   drafts: Schema.Array(Draft),
+  displaced: Schema.optionalWith(Schema.Array(Displacement), { default: () => [] }),
 }) {}
 
 export class UserJoined extends Schema.TaggedClass<UserJoined>()("UserJoined", { user: User }) {}
@@ -105,6 +109,14 @@ export class NodesUpdated extends Schema.TaggedClass<NodesUpdated>()("NodesUpdat
   nodes: Schema.Array(BoardNode),
 }) {}
 
+/**
+ * Where drafts are currently pushing committed elements. Derived, never saved:
+ * the full set every time (empty when nothing is displaced).
+ */
+export class LayoutUpdated extends Schema.TaggedClass<LayoutUpdated>()("LayoutUpdated", {
+  displaced: Schema.Array(Displacement),
+}) {}
+
 export class NodesRemoved extends Schema.TaggedClass<NodesRemoved>()("NodesRemoved", {
   ids: Schema.Array(Schema.String),
   /** Arrows attached to the removed nodes. */
@@ -121,6 +133,7 @@ export const ServerMessage = Schema.Union(
   NodesCommitted,
   NodesUpdated,
   NodesRemoved,
+  LayoutUpdated,
 )
 export type ServerMessage = typeof ServerMessage.Type
 

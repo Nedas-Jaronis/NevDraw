@@ -148,7 +148,7 @@ export function Board({ roomId, identity }: { roomId: string; identity: Identity
     const node = committedRoot(e.target)
     const start = { x: e.clientX, y: e.clientY }
     gesture.current = node
-      ? { kind: "drag", id: node.id, start, origin: { x: node.x, y: node.y }, moved: false }
+      ? { kind: "drag", id: node.id, start, origin: state.displaced.get(node.id) ?? { x: node.x, y: node.y }, moved: false }
       : { kind: "pan", startCam: cam.current, start, moved: false }
   }
 
