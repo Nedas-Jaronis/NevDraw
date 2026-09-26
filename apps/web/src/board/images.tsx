@@ -6,6 +6,8 @@ export const BoardActions = createContext<{
   setImage: (id: string, src: string | null) => void
   /** A picture dropped on an element that isn't an image: add an image inside it. */
   dropImage: (parent: string, src: string) => void
+  /** Retag an element with a new @handle. */
+  renameHandle: (id: string, handle: string) => void
 } | null>(null)
 
 /** Shrink a picked file to a data-URL that fits the sync limit. */

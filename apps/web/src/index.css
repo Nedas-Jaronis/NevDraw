@@ -54,7 +54,7 @@ body {
 }
 
 /* An element's @handle shows on hover (innermost element only) or when selected, in place of its type tag. */
-.frame-handle {
+.frame-handle:not(.is-editing) {
   display: none;
 }
 .frame:hover:not(:has(.frame:hover)) > * > .frame-title .frame-handle,

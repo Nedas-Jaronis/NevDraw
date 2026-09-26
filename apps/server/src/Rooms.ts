@@ -35,6 +35,7 @@ import {
   type HandleInfo,
   interpret,
   keepComputed,
+  referToExisting,
   materialize,
   type PieceMemory,
 } from "./engine/index.ts"
@@ -64,6 +65,20 @@ type Room = {
   ready: Deferred.Deferred<void>
 }
 
+
+/** "Checkout Page", "@checkout page!" → "@checkout-page"; null when nothing's left. */
+export const normalizeHandle = (raw: string): string | null => {
+  const body = raw
+    .trim()
+    .toLowerCase()
+    .replace(/^@+/, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40)
+    .replace(/-+$/, "")
+  return body ? `@${body}` : null
+}
+
 export type Session = {
   readonly selfId: string
   readonly moveCursor: (cursor: Point | null) => Effect.Effect<void>
@@ -74,6 +89,8 @@ export type Session = {
   readonly deleteNode: (id: string) => Effect.Effect<void>
   readonly setImage: (id: string, src: string | null) => Effect.Effect<void>
   readonly dropImage: (parent: string, src: string) => Effect.Effect<void>
+  /** Give an element a new @handle; ignored when it's empty or taken. */
+  readonly renameHandle: (id: string, handle: string) => Effect.Effect<void>
   readonly leave: Effect.Effect<void>
 }
 
@@ -165,10 +182,11 @@ export const RoomsLive = Layer.effect(
     }
 
     const handleInfo = (room: Room): HandleInfo => {
-      const info = new Map<string, { container: boolean; type: BoardNode["type"]; label: string }>()
+      const info = new Map<string, { container: boolean; type: BoardNode["type"]; label: string; parent: string | null }>()
       for (const [h, id] of room.handles) {
         const n = room.nodes.get(id)
-        if (n) info.set(h, { container: REGISTRY[n.type].container, type: n.type, label: n.label })
+        const parent = n?.parent ? (room.nodes.get(n.parent)?.handle ?? null) : null
+        if (n) info.set(h, { container: REGISTRY[n.type].container, type: n.type, label: n.label, parent })
       }
       return info
     }
@@ -326,7 +344,11 @@ export const RoomsLive = Layer.effect(
             // Explicit commands on @handles (edits, wrap, include) are parsed by code and stay
             // deterministic; otherwise the LLM's reading of this exact text wins over the instant one.
             explicitCommand = r.graph.patches.length > 0
-            const graph = llmResult?.text === text && !explicitCommand ? keepComputed(llmResult.graph, r.graph) : r.graph
+            const graph = referToExisting(
+              llmResult?.text === text && !explicitCommand ? keepComputed(llmResult.graph, r.graph) : r.graph,
+              handleInfo(room),
+              text,
+            )
             if (graph.nodes.length === 0 && graph.edges.length === 0 && graph.patches.length === 0) return Effect.as(clearDraft, [])
             const prev = room.memory.get(user.id)
             const memory = placeNewRoots(
@@ -451,9 +473,35 @@ export const RoomsLive = Layer.effect(
             const nextOrder = (parent: string | null) =>
               [...room.nodes.values()].filter((n) => n.parent === parent).reduce((m, n) => Math.max(m, n.order + 1), 0)
             const patched: BoardNode[] = []
+            const unlinked: string[] = []
+            /** Where a nested element sits on the canvas: its top-level ancestor's spot. */
+            const rootOf = (n: BoardNode) => {
+              let cur = n
+              for (let hops = 0; cur.parent !== null && hops < 64; hops++) cur = room.nodes.get(cur.parent) ?? { ...cur, parent: null }
+              return cur
+            }
             for (const p of draft.patches) {
               const n = room.nodes.get(p.id)
               if (!n) continue
+              if (p.unlink) {
+                // Unlinking from a group also cuts the arrows to what's inside it.
+                const other = new Set(p.unlink === "*" ? [] : [p.unlink])
+                for (const id of other) for (const c of room.nodes.values()) if (c.parent === id) other.add(c.id)
+                const hits = (id: string) => p.unlink === "*" || other.has(id)
+                for (const e of room.edges.values())
+                  if ((e.from === n.id && hits(e.to)) || (e.to === n.id && hits(e.from))) {
+                    room.edges.delete(e.id)
+                    unlinked.push(e.id)
+                  }
+              }
+              if (p.detach && n.parent !== null) {
+                // Out of its container, placed beside it (then the layout settles it).
+                const root = rootOf(n)
+                const next: BoardNode = { ...n, parent: null, order: 0, pinned: false, x: root.x + 380, y: root.y }
+                room.nodes.set(n.id, next)
+                patched.push(next)
+                continue
+              }
               const moving = p.parent !== undefined && p.parent !== n.parent && room.nodes.has(p.parent)
               const next: BoardNode = {
                 ...n,
@@ -466,6 +514,10 @@ export const RoomsLive = Layer.effect(
               patched.push(next)
             }
             yield* store.upsert(roomId, [...moved, ...committed, ...patched], draft.edges)
+            if (unlinked.length) {
+              yield* store.remove(roomId, [], unlinked)
+              yield* broadcast(room, new NodesRemoved({ ids: [], edgeIds: unlinked }))
+            }
             if (moved.length) yield* broadcast(room, new NodesUpdated({ nodes: moved }))
             yield* broadcast(room, new NodesCommitted({ nodes: committed, edges: draft.edges }))
             if (patched.length) yield* broadcast(room, new NodesUpdated({ nodes: patched }))
@@ -490,6 +542,21 @@ export const RoomsLive = Layer.effect(
                 const c = room.clients.get(user.id)
                 if (c) yield* Queue.offer(c.outbox, new NodesUpdated({ nodes: [moved] }))
               }
+            }),
+
+          renameHandle: (id, wanted) =>
+            Effect.gen(function* () {
+              const n = room.nodes.get(id)
+              const handle = normalizeHandle(wanted)
+              if (!n || !handle || handle === n.handle) return
+              const owner = room.handles.get(handle)
+              if (owner !== undefined && owner !== id) return
+              if (n.handle) room.handles.delete(n.handle)
+              room.handles.set(handle, id)
+              const next: BoardNode = { ...n, handle }
+              room.nodes.set(id, next)
+              yield* store.upsert(roomId, [next])
+              yield* broadcast(room, new NodesUpdated({ nodes: [next] }))
             }),
 
           setImage: (id, src) =>

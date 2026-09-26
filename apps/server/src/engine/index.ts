@@ -1,6 +1,8 @@
+import { REGISTRY } from "@rtw/shared"
 import type { EntryGraph } from "@rtw/shared"
 import type { PieceState } from "../classify/Jev.ts"
 import { keywordAnswers, type PieceAnswers } from "./answers.ts"
+import { detachOf } from "./edits.ts"
 import { assemble, classificationText, type HandleInfo } from "./assemble.ts"
 import { type Piece, split } from "./split.ts"
 import { type PieceMemory, stabilize } from "./stabilize.ts"
@@ -41,7 +43,8 @@ export function pieceStates(pieces: readonly Piece[], handles: readonly string[]
  * colon lists, collection item types) win over the LLM's guesses for the
  * same element (same key).
  */
-export function keepComputed(llm: EntryGraph, instant: EntryGraph): EntryGraph {
+export function keepComputed(llmRaw: EntryGraph, instant: EntryGraph): EntryGraph {
+  const llm = completeFromInstant(llmRaw, instant)
   const computed = new Map(instant.nodes.map((n) => [n.key, n.props]))
   const placed = new Map(instant.nodes.map((n) => [n.key, n]))
   // Code-read changes (named colors, explicit renames/moves) win for the same element.
@@ -69,6 +72,81 @@ export function keepComputed(llm: EntryGraph, instant: EntryGraph): EntryGraph {
   }
 }
 
+/**
+ * The LLM sometimes answers with only what it changed: arrows between the
+ * draft's keys without the nodes, or a "patch" on a draft key. Elements it
+ * mentions but didn't return are carried over from the instant graph (with
+ * its fixes applied); an answer with no elements at all keeps the instant one.
+ */
+export function completeFromInstant(llm: EntryGraph, instant: EntryGraph): EntryGraph {
+  const boardPatches = llm.patches.filter((p) => p.target.startsWith("@"))
+  const localFixes = new Map(llm.patches.filter((p) => !p.target.startsWith("@")).map((p) => [p.target, p]))
+  if (llm.nodes.length === 0 && instant.nodes.length > 0 && llm.edges.length === 0 && boardPatches.length === 0) return instant
+  const have = new Set(llm.nodes.map((n) => n.key))
+  const wanted = new Set([...llm.edges.flatMap((e) => [e.from, e.to]), ...localFixes.keys(), ...llm.nodes.flatMap((n) => (n.parent ? [n.parent] : []))])
+  // Nothing returned: the model agreed with the draft, so every draft element stays.
+  if (llm.nodes.length === 0) for (const n of instant.nodes) wanted.add(n.key)
+  const carried = instant.nodes
+    .filter((n) => wanted.has(n.key) && !have.has(n.key))
+    .map((n) => {
+      const fix = localFixes.get(n.key)
+      return fix ? { ...n, ...(fix.label ? { label: fix.label } : {}), ...(fix.type ? { type: fix.type } : {}), props: { ...n.props, ...(fix.color ? { color: fix.color } : {}) } } : n
+    })
+  // Children of a carried container come along with it.
+  const keys = new Set([...have, ...carried.map((n) => n.key)])
+  const kids = instant.nodes.filter((n) => !keys.has(n.key) && n.parent !== null && carried.some((c) => c.key === n.parent))
+  return { ...llm, nodes: [...llm.nodes, ...carried, ...kids], patches: boardPatches }
+}
+
+const labelKey = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()
+
+/**
+ * Elements that already exist are references, not new elements: a node keyed
+ * by an @handle, or named like an existing element when the text says "the
+ * <name>" (plus containers named like existing ones that the text never
+ * mentions: context the model added).
+ * "a signup page" (a new one) stays new. Arrows and parents are re-pointed.
+ */
+export function referToExisting(graph: EntryGraph, handles: HandleInfo, text: string): EntryGraph {
+  const said = ` ${labelKey(text)} `
+  const byLabel = new Map<string, string>()
+  for (const [h, info] of handles) if (info.label && !byLabel.has(labelKey(info.label))) byLabel.set(labelKey(info.label), h)
+  const alias = new Map<string, string>()
+  for (const n of graph.nodes) {
+    if (n.key.startsWith("@")) {
+      if (handles.has(n.key.toLowerCase())) alias.set(n.key, n.key.toLowerCase())
+      continue
+    }
+    const name = labelKey(n.label)
+    const h = byLabel.get(name)
+    if (!h || !name) continue
+    if (said.includes(` the ${name} `)) alias.set(n.key, h)
+  }
+  // Context the model added around a reference ("the signup form" → a new "Signup page"): a
+  // container named like an existing one that the text never mentions is that one.
+  for (const n of graph.nodes) {
+    const name = labelKey(n.label)
+    const h = byLabel.get(name)
+    if (h && !alias.has(n.key) && REGISTRY[n.type].container && !said.includes(` ${name} `)) alias.set(n.key, h)
+  }
+  if (alias.size === 0) return graph
+  const to = (k: string) => alias.get(k) ?? k
+  const edges = graph.edges.map((e) => ({ ...e, from: to(e.from), to: to(e.to) })).filter((e) => e.from !== e.to)
+  return {
+    ...graph,
+    nodes: graph.nodes
+      .filter((n) => !alias.has(n.key))
+      .map((n) => ({
+        ...n,
+        parent: n.parent === null ? null : to(n.parent),
+        ...(n.after ? { after: to(n.after) } : {}),
+        ...(n.before ? { before: to(n.before) } : {}),
+      })),
+    edges: edges.filter((e, i) => edges.findIndex((x) => x.from === e.from && x.to === e.to && x.kind === e.kind) === i),
+    patches: graph.patches.map((p) => (p.parent ? { ...p, parent: to(p.parent) } : p)),
+  }
+}
+
 export type PieceDebug = { text: string; type: string; confidence: number; source: "keyword" | "jev" }
 
 /**
@@ -85,6 +163,9 @@ export function interpret(input: {
   peek: (s: PieceState) => PieceAnswers | undefined
   memory: ReadonlyMap<number, PieceMemory>
 }) {
+  // "detach @a from @b", "disconnect @a and @b": one command, not a sentence to split.
+  const detach = detachOf(input.text, input.handles)
+  if (detach) return { graph: { nodes: [], edges: [], suggestions: [], patches: detach }, memory: new Map<number, PieceMemory>(), missing: [], debug: [], pieces: [] }
   const pieces = split(input.text)
   const states = pieceStates(pieces, [...input.handles.keys()], input.handles)
   const memory = new Map<number, PieceMemory>()

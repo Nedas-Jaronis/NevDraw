@@ -36,6 +36,10 @@ export const LlmGraph = Schema.Struct({
       type: Schema.Literal(...NODE_TYPES, "none"),
       color: Schema.String,
       parent: Schema.String,
+      /** true: move it out of its container to the top level. */
+      detach: Schema.Boolean,
+      /** Remove the arrows between it and this @handle ("*" = all its arrows), else "". */
+      unlink: Schema.String,
     }),
   ),
 })
@@ -62,18 +66,21 @@ export function fromLlm(g: LlmGraph): EntryGraph {
     edges: g.edges.filter((e) => e.from !== e.to),
     suggestions: g.suggestions,
     patches: g.patches
-      .filter((p) => p.element.startsWith("@"))
+      // "@handle" patches change the board; a draft key ("p2") is a fix to this entry's own element.
+      .filter((p) => p.element.trim() !== "")
       .map((p) => ({
         target: p.element.trim().toLowerCase(),
         ...(p.label.trim() ? { label: p.label.trim().slice(0, 60) } : {}),
         ...(p.type !== "none" ? { type: p.type } : {}),
         ...(/^#[0-9a-f]{6}$/i.test(p.color.trim()) ? { color: p.color.trim().toLowerCase() } : {}),
         ...(p.parent.trim() ? { parent: p.parent.trim() } : {}),
+        ...(p.detach ? { detach: true } : {}),
+        ...(p.unlink.trim() === "*" || p.unlink.trim().startsWith("@") ? { unlink: p.unlink.trim().toLowerCase() } : {}),
       })),
   }
 }
 
-const FIELDS = ["nodes", "edges", "suggestions", "patches", "element", "after", "before", "key", "type", "label", "parent", "layout", "items", "of", "color", "from", "to", "kind", "text", "handle", "source", "target"]
+const FIELDS = ["nodes", "edges", "suggestions", "patches", "element", "after", "before", "key", "type", "label", "parent", "layout", "items", "of", "color", "from", "to", "kind", "text", "handle", "source", "target", "detach", "unlink"]
 
 /**
  * Safety net for models that bend the shape in plain JSON mode: garbled
@@ -118,6 +125,8 @@ export function normalizeLlmJson(raw: unknown): unknown {
       type: p?.type ?? "none",
       color: String(p?.color ?? ""),
       parent: String(p?.parent ?? ""),
+      detach: p?.detach === true || p?.detach === "true",
+      unlink: String(p?.unlink ?? ""),
     })),
   }
 }
@@ -140,7 +149,7 @@ nodes: every element the text describes, nothing more.
 - type is one of these (pick the most specific; use box only when nothing fits):
 ${NODE_TYPES.map((t) => `  ${t}: ${REGISTRY[t].describe}`).join("\n")}
 - label: a short name a person would write on the box (e.g. "Landing page", "Pricing table", "Postgres").
-- parent: the key of the element it sits inside, an existing @handle it sits inside, or "" for top level. Only page, section, form, card and modal hold children. Architecture elements are never children.
+- parent: the key of the element it sits inside, an existing @handle it sits inside, or "" for top level. Only page, section, form, card and modal hold children. Architecture elements are never children of UI, but a group the text names holds its members: "a stack / cluster / pool / group of 5 servers" → a section ("Servers stack") with Server 1..5 inside it; arrows to or from the group go to or from each member.
 - layout: "row", "grid" or "stack" when the text asks how a container arranges its children, otherwise "none".
 - Repeated items ("three pricing cards") become that many separate nodes inside one section.
 - Position: the board lists each element's parent and its "order" among siblings (the page's top-to-bottom structure). "between @navbar and @call-to-action" → parent = their parent, after "@navbar", before "@call-to-action"; "above @x" → before "@x"; "below @x" → after "@x"; otherwise after and before are "".
@@ -154,16 +163,19 @@ ${NODE_TYPES.map((t) => `  ${t}: ${REGISTRY[t].describe}`).join("\n")}
 
 edges: relationships between elements, as keys or @handles, with kind one of: ${EDGE_KINDS.join(", ")}.
 - calls = requests/sends/uses; reads = fetches/queries; writes = saves/stores/updates; publishes/subscribes = events and queues; navigates-to = a page or button leads to another page.
-- Resolve pronouns and chains ("the checkout calls stripe, then it emails the user via a queue").
+- Every subject gets its own arrow: "the mobile app and the web app both call the gateway" → two edges. Resolve pronouns and chains ("the checkout calls stripe, then it emails the user via sendgrid" → checkout → stripe, checkout → sendgrid). A service named after "via / using / through" is an element with an arrow to it, not part of a label.
+- Connecting is never nesting: an element that has an arrow to or from something is not its child.
+- A new element placed "between" two connected elements goes in the flow: "a cache between @api and @db" → @api → cache → @db.
+- Headings and framing are not elements: "monolith: a web app calls an api" → just the web app and the api.
 
 Pronouns: "them", "these", "both", "it" refer to the @handles under "recent" (what this person added last). "Connect them" means edges between those elements, in a sensible flow direction, and no new nodes.
 
-Changes to existing elements go in "patches", never as new nodes: "make @x red" → {element "@x", color red}; "rename @x to Checkout" → label; "turn @x into a stopwatch" → type (only change type when the text explicitly says turn into / convert to / change it to a; "make @x a red clock" is just a color); "wrap/group @a and @b into one box" or "…it should include @a @b" → a new container node plus a patch per element with parent = that container's key. Unused patch fields are "" (type "none").
+Changes to existing elements go in "patches", never as new nodes: "make @x red" → {element "@x", color red}; "rename @x to Checkout" → label; "turn @x into a stopwatch" → type (only change type when the text explicitly says turn into / convert to / change it to a; "make @x a red clock" is just a color); "wrap/group @a and @b into one box" or "…it should include @a @b" → a new container node plus a patch per element with parent = that container's key. "…inside @x" narrows "all / every" to the elements inside @x ("turn all servers inside @stack blue" → the servers inside @stack, never @stack itself). Taking things apart: "detach / unattach / take @a out of @b" when @a sits inside @b → {element "@a", detach true}; "disconnect / unlink @a from @b" or "remove the arrow between @a and @b" → {element "@a", unlink "@b"}; "disconnect @a" from everything → unlink "*". Unused patch fields are "" (type "none", detach false).
 
 References: the board already has the elements listed under "board". Refer to them only by their exact @handle, never invent handles, and never re-create an element that the text refers to by @handle.
-suggestions: when plain text clearly means an existing board element but was not written as an @handle (e.g. "postgres" while @postgres exists), add {"text": the words used, "handle": the @handle}. Keep creating the node as usual.
+When plain text clearly names an existing board element by its label (e.g. "the servers stack" while @servers-stack exists, "postgres" while @postgres exists) in a relationship, use that @handle as the edge end instead of creating a duplicate, and add a suggestion {"text": the words used, "handle": the @handle}. Only create a new node for it when the text asks for a new one ("add another postgres").
 
-Keys: reuse the key from "draft" when your node is the same element (same thing, even if you improve its type or label). New elements get new keys like "n1", "n2".`
+Keys: "draft" is only a fast, rough guess at THIS text by simple rules; nothing in it is on the board yet, and its labels, types and nesting are often wrong (a whole clause as a label like "Upload service stores files in an s3 bucket", a missing element, a heading as a box). Don't copy it: read the text yourself and fix every label to the short name of the thing ("Upload service", "S3 bucket"). Always return the complete graph: every element the text describes goes in "nodes", including ones the draft already shows. Reuse the draft's key when your node is the same element (same thing, even if you improve its type or label). New elements get new keys like "n1", "n2". Patches are only for @handles on the board.`
 
 export function userPrompt(input: RefineInput): string {
   return JSON.stringify({ text: input.text, board: input.board, recent: input.recent ?? [], draft: input.draft })

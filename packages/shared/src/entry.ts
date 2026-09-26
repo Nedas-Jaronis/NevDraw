@@ -46,6 +46,10 @@ export const EntryPatch = Schema.Struct({
   color: Schema.optional(Schema.String),
   /** A local key or @handle of the container it moves into. */
   parent: Schema.optional(Schema.String),
+  /** "take @a out of @b": move it out of its container to the top level. */
+  detach: Schema.optional(Schema.Boolean),
+  /** "disconnect @a from @b": remove the arrows between it and this @handle ("*": all its arrows). */
+  unlink: Schema.optional(Schema.String),
 })
 export type EntryPatch = typeof EntryPatch.Type
 
