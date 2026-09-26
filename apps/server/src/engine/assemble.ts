@@ -1,6 +1,6 @@
 import { ACCENTS, type EntryEdge, type EntryGraph, type EntryNode, type EntryPatch, type NodeType, REGISTRY } from "@rtw/shared"
-import { editOf } from "./edits.ts"
-import { collectionOf, explicitColor, isModifierOnly, sequenceItems, withoutValues } from "./modifiers.ts"
+import { bulkEditOf, editOf } from "./edits.ts"
+import { collectionOf, explicitColor, isModifierOnly, sequenceItems, systemGroup, withoutValues } from "./modifiers.ts"
 import { labelFrom } from "../classify/keywords.ts"
 import type { PieceAnswers } from "./answers.ts"
 import type { Piece } from "./split.ts"
@@ -76,7 +76,12 @@ function cleanLabel(text: string, repeated: boolean): string {
   // An @token in a label is just its words: the server never invents references.
   const plain = withoutValues(text.replace(/@([a-z0-9][a-z0-9-]*)/gi, (_, h: string) => h.replace(/-/g, " "))) || text
   // Keep numbers that are values ("25 min timer"); drop the count of repeats.
-  let t = (repeated ? plain.replace(COUNT, "") : plain).replace(LAYOUT_WORDS, " ").replace(/\s+/g, " ").trim()
+  let t = (repeated ? plain.replace(COUNT, "") : plain)
+    .replace(/\b(individual|separate|different|distinct|single)\s+/gi, "")
+    .replace(/\bdata\s+base/gi, "database")
+    .replace(LAYOUT_WORDS, " ")
+    .replace(/\s+/g, " ")
+    .trim()
   if (repeated) t = t.replace(/(\w{3,}[^s])s$/i, "$1")
   return labelFrom(t || plain)
 }
@@ -166,9 +171,15 @@ export function assemble(
   const byLabel = new Map<string, string>()
   let prev: { key: string; parent: string | null; container: boolean } | null = null
 
+  /** "5 servers" on a system diagram: the group's key stands for each member. */
+  const groups = new Map<string, string[]>()
   const addEdge = (from: string | undefined, to: string, kind: EntryEdge["kind"], label?: string) => {
-    if (!from || from === to || edges.some((e) => e.from === from && e.to === to && e.kind === kind)) return
-    edges.push({ from, to, kind, ...(label ? { label } : {}) })
+    if (!from) return
+    for (const f of groups.get(from) ?? [from])
+      for (const t of groups.get(to) ?? [to]) {
+        if (f === t || edges.some((e) => e.from === f && e.to === t && e.kind === kind)) continue
+        edges.push({ from: f, to: t, kind, ...(label ? { label } : {}) })
+      }
   }
 
   pieces.forEach((piece, i) => {
@@ -199,6 +210,17 @@ export function assemble(
       }
       moveInto(piece.include ?? [], box.key)
       prev = { key: box.key, parent: box.parent, container: true }
+      return
+    }
+    // "make all servers red", "color everything blue": the same change to many existing elements.
+    const bulk = piece.wrap ? null : bulkEditOf(piece.text, handles, recent)
+    if (bulk) {
+      for (const p of bulk) {
+        const existing = patches.find((q) => q.target === p.target)
+        if (existing) Object.assign(existing, p)
+        else patches.push(p)
+      }
+      prev = null
       return
     }
     // "make @x red", "rename @x to Checkout": a change to an existing element, not a new one.
@@ -267,9 +289,29 @@ export function assemble(
     // Services, databases, queues… are system pieces, never parts of a page.
     if (REGISTRY[a.nodeType.value].lane === "architecture") parent = null
 
-    const count = countOf(piece.text)
+    // "a stack of 5 servers" → "5 servers".
+    const countText = systemGroup(piece.text) ?? piece.text
+    const count = countOf(countText)
     const key = `p${piece.index}`
     const layout = a.layout.value !== "none" && a.layout.confidence >= YES ? a.layout.value : null
+
+    if (count > 1 && REGISTRY[a.nodeType.value].lane === "architecture") {
+      // System pieces repeat as separate, numbered elements ("Server 1 … Server 5"), never a box;
+      // arrows to or from the group reach every member.
+      const label = cleanLabel(countText, true)
+      const members: string[] = []
+      for (let r = 0; r < count; r++) {
+        const m: MutableNode = { key: `${key}.${r}`, type: a.nodeType.value, label: `${label} ${r + 1}`, parent: null, props: {} }
+        nodes.push(m)
+        byKey.set(m.key, m)
+        members.push(m.key)
+      }
+      groups.set(key, members)
+      keyOfPiece.set(piece.index, key)
+      if (edge) addEdge(keyOfPiece.get(edge.from), key, edge.kind, edge.label)
+      prev = { key, parent: null, container: false }
+      return
+    }
 
     if (count > 1) {
       // "three cards in a row" → a group section (row by default) holding the repeats,

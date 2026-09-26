@@ -155,3 +155,58 @@ test("the reported flow: linking to a committed timer adds an arrow, not a new t
   expect(second.nodes).toEqual([])
   expect(second.edges[0]).toMatchObject({ from: first.nodes[0]!.id, to: first.nodes[1]!.id, label: "connects" })
 })
+
+describe("the reported system stack", () => {
+  test("servers → load balancer → databases, as the sentence says, numbered and fully wired", () => {
+    const g = interpretOffline("create a stack of 5 servers connected to a load balancer which is then connected to 3 individual data bases")
+    const label = new Map(g.nodes.map((n) => [n.key, n.label]))
+    expect(g.nodes.map((n) => `${n.type}:${n.label}`)).toEqual([
+      ...[1, 2, 3, 4, 5].map((i) => `service:Server ${i}`),
+      "service:Load balancer",
+      ...[1, 2, 3].map((i) => `database:Database ${i}`),
+    ])
+    expect(g.nodes.every((n) => n.parent === null)).toBe(true)
+    expect(g.edges.map((e) => `${label.get(e.from)}->${label.get(e.to)}`)).toEqual([
+      ...[1, 2, 3, 4, 5].map((i) => `Server ${i}->Load balancer`),
+      ...[1, 2, 3].map((i) => `Load balancer->Database ${i}`),
+    ])
+  })
+
+  test("'which is then' and 'connected to' chain from the right subject", () => {
+    const g = interpretOffline("web app connected to an api which is then connected to postgres")
+    const label = new Map(g.nodes.map((n) => [n.key, n.label]))
+    expect(g.edges.map((e) => `${label.get(e.from)}->${label.get(e.to)}`)).toEqual(["Web app->Api", "Api->Postgres"])
+  })
+})
+
+describe("bulk color edits", () => {
+  const board = new Map([
+    ["@server-1", { container: false, type: "service" as const }],
+    ["@server-2", { container: false, type: "service" as const }],
+    ["@load-balancer", { container: false, type: "service" as const }],
+    ["@database-1", { container: false, type: "database" as const }],
+  ])
+  const targets = (t: string, recent: string[] = []) =>
+    interpretOffline(t, board).patches.map((p) => `${p.target}=${p.color}`)
+
+  test("the reported case: 'create all instances red' colors every element", async () => {
+    expect(targets("create all instances red")).toEqual([
+      "@server-1=#e03131",
+      "@server-2=#e03131",
+      "@load-balancer=#e03131",
+      "@database-1=#e03131",
+    ])
+    expect(interpretOffline("create all instances red", board).nodes).toEqual([])
+  })
+
+  test("a type word narrows it; everything / every works too", () => {
+    expect(targets("make all databases blue")).toEqual(["@database-1=#1c7ed6"])
+    expect(targets("paint every server green")).toEqual(["@server-1=#2f9e44", "@server-2=#2f9e44", "@load-balancer=#2f9e44"])
+    expect(targets("color everything navy")).toHaveLength(4)
+  })
+
+  test("not a bulk edit: no color, or new elements ('all pages have a navbar')", () => {
+    expect(targets("make all instances")).toEqual([])
+    expect(targets("a landing page where all buttons are big")).toEqual([])
+  })
+})
