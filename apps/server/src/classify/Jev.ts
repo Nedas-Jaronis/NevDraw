@@ -2,6 +2,7 @@ import { type EdgeKind, type Layout, NODE_TYPES, type NodeType } from "@rtw/shar
 import { TypeSafeClient } from "@typesafe-ai/sdk"
 import { Context, Data, Duration, Effect, Layer } from "effect"
 import type { PieceAnswers } from "../engine/answers.ts"
+import { env, envNumber } from "../env.ts"
 import { pieceQuestions } from "./jevQuestions.ts"
 
 /** What Jev sees for one piece. Also the cache key, so keep it small and deterministic. */
@@ -66,13 +67,13 @@ export const JevDisabled = Layer.succeed(Jev, {
  * a stale answer is worse than the keyword placeholder.
  */
 export const JevFromEnv = Layer.suspend(() => {
-  const key = process.env.TYPESAFE_API_KEY
+  const key = env("TYPESAFE_API_KEY")
   if (!looksLikeKey(key)) {
     console.info("[jev] offline: no TYPESAFE_API_KEY set; drafts use the keyword classifier")
     return JevDisabled
   }
-  const model = process.env.JEV_MODEL || "jev-latest"
-  const timeout = Number(process.env.JEV_TIMEOUT_MS) || 2500
+  const model = env("JEV_MODEL") ?? "jev-latest"
+  const timeout = envNumber("JEV_TIMEOUT_MS") ?? 2500
   const client = new TypeSafeClient({ apiKey: key, defaultModel: model, retry: { maxRetries: 0 }, timeout })
   console.info(`[jev] online: ${model}, timeout ${timeout}ms`)
   return Layer.succeed(Jev, {
