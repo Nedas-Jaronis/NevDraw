@@ -86,7 +86,7 @@ const llms = [
     : { name: "gemini", skip: "no GEMINI_API_KEY in .env" },
   looksLikeKey(env("GPTOSS_API_KEY"))
     ? openAiCompatible({
-        baseUrl: env("GPTOSS_BASE_URL") ?? "https://api.groq.com/openai/v1",
+        baseUrl: env("GPTOSS_BASE_URL") ?? "https://openrouter.ai/api/v1",
         apiKey: env("GPTOSS_API_KEY")!,
         model: env("GPTOSS_MODEL") ?? "openai/gpt-oss-120b",
       })
@@ -121,9 +121,9 @@ if (llmP50s.length) result.llmP50 = Math.min(...llmP50s)
 // ── Recommendations ────────────────────────────────────────────────────────
 console.log("\nRecommended .env tuning")
 if (result.jevBatchP95 !== undefined) console.log(`  JEV_TIMEOUT_MS=${Math.max(800, Math.round((result.jevBatchP95 * 2) / 100) * 100)}`)
-else console.log("  JEV_TIMEOUT_MS: (needs a Jev key)")
+else console.log("  JEV_TIMEOUT_MS: (no successful Jev calls yet)")
 if (result.llmP50 !== undefined) {
   console.log(`  LLM_DEBOUNCE_MS=${Math.max(900, Math.min(2000, Math.round(result.llmP50 / 100) * 100))}`)
   console.log(`  LLM_COMMIT_WAIT_MS=${Math.min(2500, Math.round((result.llmP50 * 1.3) / 100) * 100)}`)
-} else console.log("  LLM_DEBOUNCE_MS / LLM_COMMIT_WAIT_MS: (need a Gemini or gpt-oss key)")
+} else console.log("  LLM_DEBOUNCE_MS / LLM_COMMIT_WAIT_MS: (no successful LLM calls yet)")
 console.log("")

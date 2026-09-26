@@ -127,7 +127,7 @@ export const RefinerFromEnv = Layer.suspend(() => {
   const g = looksLikeKey(geminiKey) ? gemini(geminiKey, env("GEMINI_MODEL") ?? DEFAULT_GEMINI_MODEL) : null
   const o = looksLikeKey(gptossKey)
     ? openAiCompatible({
-        baseUrl: env("GPTOSS_BASE_URL") ?? "https://api.groq.com/openai/v1",
+        baseUrl: env("GPTOSS_BASE_URL") ?? "https://openrouter.ai/api/v1",
         apiKey: gptossKey,
         model: env("GPTOSS_MODEL") ?? "openai/gpt-oss-120b",
       })
