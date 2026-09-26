@@ -1,4 +1,4 @@
-import { EDGE_KINDS, type EntryGraph, LAYOUTS, NODE_TYPES, REGISTRY } from "@rtw/shared"
+import { ACCENT_NAMES, ACCENTS, EDGE_KINDS, type EntryGraph, LAYOUTS, NODE_TYPES, REGISTRY } from "@rtw/shared"
 import { EdgeKind, NodeType } from "@rtw/shared"
 import { Schema } from "effect"
 
@@ -15,6 +15,12 @@ export const LlmGraph = Schema.Struct({
       /** A node key, an existing @handle, or "" for top level. */
       parent: Schema.String,
       layout: Schema.Literal(...LAYOUTS, "none"),
+      /** A collection's item type ("a table of timers" → "timer"), or "none". */
+      of: Schema.Literal(...NODE_TYPES, "none"),
+      /** Concrete values: table rows, checklist entries, poll options, tab names. */
+      items: Schema.Array(Schema.String),
+      /** Accent color as #rrggbb when the text names or implies one, else "". */
+      color: Schema.String,
     }),
   ),
   edges: Schema.Array(Schema.Struct({ from: Schema.String, to: Schema.String, kind: EdgeKind })),
@@ -31,14 +37,19 @@ export function fromLlm(g: LlmGraph): EntryGraph {
       type: n.type,
       label: n.label.trim().slice(0, 60) || n.type,
       parent: validParent(n.parent.trim()),
-      props: n.layout === "none" ? {} : { layout: n.layout },
+      props: {
+        ...(n.layout === "none" ? {} : { layout: n.layout }),
+        ...(n.of !== "none" ? { of: n.of } : {}),
+        ...(n.items.length ? { items: n.items.slice(0, 12).map((x) => x.slice(0, 60)) } : {}),
+        ...(/^#[0-9a-f]{6}$/i.test(n.color.trim()) ? { color: n.color.trim().toLowerCase() } : {}),
+      },
     })),
     edges: g.edges.filter((e) => e.from !== e.to),
     suggestions: g.suggestions,
   }
 }
 
-const FIELDS = ["nodes", "edges", "suggestions", "key", "type", "label", "parent", "layout", "from", "to", "kind", "text", "handle", "source", "target"]
+const FIELDS = ["nodes", "edges", "suggestions", "key", "type", "label", "parent", "layout", "items", "of", "color", "from", "to", "kind", "text", "handle", "source", "target"]
 
 /**
  * Safety net for models that bend the shape in plain JSON mode: garbled
@@ -65,7 +76,14 @@ export function normalizeLlmJson(raw: unknown): unknown {
   if (!g || typeof g !== "object") return raw
   const nodes = Array.isArray(g.nodes) ? g.nodes : []
   return {
-    nodes: nodes.map((n: any) => ({ ...n, parent: n?.parent ?? "", layout: n?.layout ?? "none" })),
+    nodes: nodes.map((n: any) => ({
+      ...n,
+      parent: n?.parent ?? "",
+      layout: n?.layout ?? "none",
+      of: n?.of ?? "none",
+      items: Array.isArray(n?.items) ? n.items.map(String) : [],
+      color: typeof n?.color === "string" ? n.color : "",
+    })),
     edges: Array.isArray(g.edges) ? g.edges : [],
     suggestions: Array.isArray(g.suggestions) ? g.suggestions : [],
   }
@@ -93,6 +111,8 @@ ${NODE_TYPES.map((t) => `  ${t}: ${REGISTRY[t].describe}`).join("\n")}
 - layout: "row", "grid" or "stack" when the text asks how a container arranges its children, otherwise "none".
 - Repeated items ("three pricing cards") become that many separate nodes inside one section.
 - Numbers with units are values, not counts: "25 min timer" is one timer labelled "25 min timer".
+- Collections: "a table/list of X" is ONE node of type table/list with "of" = X's type and "items" = its rows. Compute values the text asks for: "a table of timers with increments of 15" → type "table", of "timer", items ["15 min","30 min","45 min","60 min"]. Lists after a colon are items: "a checklist: milk, eggs" → items ["Milk","Eggs"]. Use items for poll options, tab names, select options and table rows too. Otherwise items is [] and "of" is "none".
+- color: "#rrggbb" when the text names a color or clearly implies one, else "". Use this palette: ${ACCENT_NAMES.map((a) => `${a} ${ACCENTS[a].hex}`).join(", ")} ("delete button" → red, "success banner" → green, "dark mode" → dark). Don't color whole pages or sections unless the text asks.
 - Clarifications name the listed elements in order: "a server and a database, being server and sql" → "Server" and "SQL Database"; "a database called postgres" → "Postgres".
 - Ignore conversation and meta words ("can you create a flowchart with …" → just the elements).
 

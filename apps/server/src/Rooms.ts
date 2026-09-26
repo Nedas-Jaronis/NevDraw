@@ -28,7 +28,15 @@ import { envNumber } from "./env.ts"
 import type { EntryGraph } from "@rtw/shared"
 import type { BoardSummaryItem } from "./refine/prompt.ts"
 import { Refiner } from "./refine/Refiner.ts"
-import { type BoardView, type DraftMemory, type HandleInfo, interpret, materialize, type PieceMemory } from "./engine/index.ts"
+import {
+  type BoardView,
+  type DraftMemory,
+  type HandleInfo,
+  interpret,
+  keepComputed,
+  materialize,
+  type PieceMemory,
+} from "./engine/index.ts"
 import { avoid, estimateSizes, pushAside, type Rect } from "./engine/layout.ts"
 import { mergeSuggestions, suggestLinks } from "./engine/suggest.ts"
 
@@ -308,7 +316,7 @@ export const RoomsLive = Layer.effect(
             pieceMemory = r.memory
             lastGraph = r.graph
             // The LLM's reading of this exact text wins over the instant one.
-            const graph = llmResult?.text === text ? llmResult.graph : r.graph
+            const graph = llmResult?.text === text ? keepComputed(llmResult.graph, r.graph) : r.graph
             if (graph.nodes.length === 0 && graph.edges.length === 0) return Effect.as(clearDraft, [])
             const prev = room.memory.get(user.id)
             const memory = placeNewRoots(

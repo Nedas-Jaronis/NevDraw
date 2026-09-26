@@ -1,4 +1,4 @@
-import { NODE_TYPES, type NodeType, REGISTRY } from "@rtw/shared"
+import { ACCENT_NAMES, ACCENTS, NODE_TYPES, type NodeType, REGISTRY } from "@rtw/shared"
 import { choice, noul } from "@typesafe-ai/sdk"
 
 /**
@@ -43,6 +43,11 @@ export const pieceQuestions = {
   }),
 
   targetsHandle: noul("`piece` refers to one of the existing elements named in `handles`"),
+
+  accent: choice("Which color does `piece` imply for its element, when it doesn't name one", {
+    ...(Object.fromEntries(ACCENT_NAMES.map((a) => [a, ACCENTS[a].describe])) as Record<(typeof ACCENT_NAMES)[number], string>),
+    none: "No particular color is implied",
+  }),
 } as const
 
 export type PieceQuestions = typeof pieceQuestions

@@ -24,8 +24,23 @@ const SKETCH_H: Partial<Record<NodeType, number>> = {
   list: 52,
   text: 28,
   box: 28,
-  timer: 92,
-  stopwatch: 92,
+  timer: 84,
+  stopwatch: 84,
+  event: 64,
+  checklist: 96,
+  poll: 76,
+  countdown: 44,
+  color: 44,
+  contact: 36,
+  link: 44,
+  habit: 36,
+  goal: 44,
+  reminder: 28,
+  expense: 32,
+  travel: 24,
+  clock: 36,
+  calculator: 76,
+  note: 44,
   chart: 76,
   calendar: 112,
   map: 84,
@@ -59,6 +74,12 @@ export function estimateSizes(nodes: readonly BoardNode[]): Map<string, Size> {
 
   const height = (n: BoardNode, root: boolean): number => {
     const pad = root ? ROOT_PAD : CHILD_PAD
+    // Rows grow with their items: tables, lists, checklists, polls.
+    const rows = n.props.items?.length ?? 3
+    if (n.type === "table") return pad + TITLE + 30 + rows * (n.props.of === "timer" ? 38 : 30)
+    if (n.type === "list") return pad + TITLE + rows * (n.props.of === "timer" ? 34 : 24)
+    if (n.type === "checklist") return pad + TITLE + rows * 30
+    if (n.type === "poll") return pad + TITLE + (n.props.items?.length ?? 2) * 36
     if (!REGISTRY[n.type].container) return pad + TITLE + (SKETCH_H[n.type] ?? 0)
     const kids = (children.get(n.id) ?? []).sort((a, b) => a.order - b.order)
     if (kids.length === 0) return pad + TITLE + 10 + 64

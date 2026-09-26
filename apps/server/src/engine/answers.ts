@@ -1,4 +1,4 @@
-import { type EdgeKind, type Layout, type NodeType, REGISTRY } from "@rtw/shared"
+import { type Accent, type EdgeKind, type Layout, type NodeType, REGISTRY } from "@rtw/shared"
 import { classifyKeywords } from "../classify/keywords.ts"
 import { classificationText } from "./assemble.ts"
 import type { Piece } from "./split.ts"
@@ -20,6 +20,8 @@ export type PieceAnswers = {
   edgeKind: { value: EdgeKind | "none"; confidence: number }
   /** Refers to an existing @handle on the board (#9). */
   targetsHandle: number
+  /** A color the text implies without naming it ("delete button" → red). */
+  accent: { value: Accent | "none"; confidence: number }
   /** Keyword answers are provisional placeholders until Jev answers. */
   source: "keyword" | "jev"
 }
@@ -47,6 +49,7 @@ export function keywordAnswers(piece: Piece): PieceAnswers {
     layout: { value: layout, confidence: layout === "none" ? 0 : 0.9 },
     edgeKind: { value: "none", confidence: 1 },
     targetsHandle: 0,
+    accent: { value: "none", confidence: 1 },
     source: "keyword",
   }
 }

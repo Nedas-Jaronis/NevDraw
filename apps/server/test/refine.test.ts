@@ -11,9 +11,9 @@ import { is, startServer, TestClient } from "./helpers.ts"
 
 const llmGraph: LlmGraph = {
   nodes: [
-    { key: "p0", type: "service", label: "Checkout", parent: "", layout: "none" },
-    { key: "n1", type: "external-api", label: "Stripe", parent: "", layout: "none" },
-    { key: "n2", type: "queue", label: "Email queue", parent: "", layout: "none" },
+    { key: "p0", type: "service", label: "Checkout", parent: "", layout: "none", of: "none", items: [], color: "" },
+    { key: "n1", type: "external-api", label: "Stripe", parent: "", layout: "none", of: "none", items: [], color: "" },
+    { key: "n2", type: "queue", label: "Email queue", parent: "", layout: "none", of: "none", items: [], color: "" },
   ],
   edges: [
     { from: "p0", to: "n1", kind: "calls" },
@@ -26,9 +26,9 @@ describe("LLM wire format", () => {
   test("fromLlm maps '' to top level, 'none' to no layout, and drops self-loops", () => {
     const g = fromLlm({
       nodes: [
-        { key: "a", type: "page", label: " Home ", parent: "", layout: "row" },
-        { key: "b", type: "hero", label: "Hero", parent: "a", layout: "none" },
-        { key: "c", type: "text", label: "Orphan", parent: "zzz", layout: "none" },
+        { key: "a", type: "page", label: " Home ", parent: "", layout: "row", of: "none", items: [], color: "" },
+        { key: "b", type: "hero", label: "Hero", parent: "a", layout: "none", of: "none", items: [], color: "" },
+        { key: "c", type: "text", label: "Orphan", parent: "zzz", layout: "none", of: "none", items: [], color: "" },
       ],
       edges: [{ from: "a", to: "a", kind: "calls" }],
       suggestions: [],
@@ -102,8 +102,8 @@ describe("providers against mock HTTP servers", () => {
     const garbled = {
       nodes: [
         { "key 다": "n1", type: "page", label: "Checkout page", parent: "", "layout поздрав": "none" },
-        { key: "n2", type: "external-api", label: "Stripe", parent: "", layout: "none" },
-        { key: "n3", type: "queue", label: "Email queue", parent: "", layout: "none" },
+        { key: "n2", type: "external-api", label: "Stripe", parent: "", layout: "none", of: "none", items: [], color: "" },
+        { key: "n3", type: "queue", label: "Email queue", parent: "", layout: "none", of: "none", items: [], color: "" },
       ],
       edges: [
         { sourceuib: "n1", target: "n2", kind: "calls" },

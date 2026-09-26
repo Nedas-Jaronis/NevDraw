@@ -1,4 +1,4 @@
-import { type EdgeKind, type Layout, NODE_TYPES, type NodeType } from "@rtw/shared"
+import { type Accent, ACCENT_NAMES, type EdgeKind, type Layout, NODE_TYPES, type NodeType } from "@rtw/shared"
 import { TypeSafeClient } from "@typesafe-ai/sdk"
 import { Context, Data, Duration, Effect, Layer } from "effect"
 import type { PieceAnswers } from "../engine/answers.ts"
@@ -42,6 +42,7 @@ export function toPieceAnswers(a: {
   layout: Choice<string>
   edgeKind: Choice<string>
   targetsHandle: { noul: number }
+  accent?: Choice<string>
 }): PieceAnswers {
   const type = (NODE_TYPE_SET.has(a.nodeType.choice) ? a.nodeType.choice : "box") as NodeType
   return {
@@ -51,6 +52,10 @@ export function toPieceAnswers(a: {
     layout: { value: a.layout.choice as Layout | "none", confidence: a.layout.confidence },
     edgeKind: { value: a.edgeKind.choice as EdgeKind | "none", confidence: a.edgeKind.confidence },
     targetsHandle: a.targetsHandle.noul,
+    accent:
+      a.accent && (ACCENT_NAMES as string[]).includes(a.accent.choice)
+        ? { value: a.accent.choice as Accent, confidence: a.accent.confidence }
+        : { value: "none", confidence: a.accent?.confidence ?? 1 },
     source: "jev",
   }
 }
