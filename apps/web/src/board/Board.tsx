@@ -7,6 +7,7 @@ import { type Camera, panBy, pinch, toScreen, toWorld, zoomAt } from "./camera.t
 import { InputBox } from "./InputBox.tsx"
 import { RootView } from "./NodeView.tsx"
 import { DebugPanel } from "./DebugPanel.tsx"
+import { EdgeLayer } from "./EdgeLayer.tsx"
 import { buildTree } from "./tree.ts"
 
 const DEBUG = new URLSearchParams(location.search).has("debug")
@@ -207,6 +208,7 @@ export function Board({ roomId, identity }: { roomId: string; identity: Identity
         className="absolute left-0 top-0 origin-top-left"
         style={{ transform: `translate(${camera.x}px, ${camera.y}px) scale(${camera.zoom})` }}
       >
+        <EdgeLayer edges={tree.edges} camera={camera} />
         <AnimatePresence>
           {tree.roots.map((item) => (
             <RootView

@@ -1,11 +1,15 @@
-import type { BoardNode } from "@rtw/shared"
+import type { BoardEdge, BoardNode } from "@rtw/shared"
 import type { RoomState } from "../room/state.ts"
 
 export type Item = { node: BoardNode; draft: boolean; typing?: string }
 
+export type EdgeItem = { edge: BoardEdge; draft: boolean }
+
 export type Tree = {
   roots: Item[]
   children: ReadonlyMap<string, Item[]>
+  /** Arrows whose endpoints are both on the board (committed wins over draft by id). */
+  edges: EdgeItem[]
 }
 
 /**
@@ -39,5 +43,10 @@ export function buildTree(state: RoomState): Tree {
     } else roots.push(item)
   }
   for (const list of children.values()) list.sort((a, b) => a.node.order - b.node.order)
-  return { roots, children }
+
+  const edges = new Map<string, EdgeItem>()
+  for (const d of state.drafts.values()) for (const edge of d.edges) edges.set(edge.id, { edge, draft: true })
+  for (const edge of state.edges.values()) edges.set(edge.id, { edge, draft: false })
+  const visible = [...edges.values()].filter((e) => items.has(e.edge.from) && items.has(e.edge.to))
+  return { roots, children, edges: visible }
 }

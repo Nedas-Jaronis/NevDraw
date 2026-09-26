@@ -1,5 +1,5 @@
 import { Schema } from "effect"
-import { BoardNode, Draft } from "./board.ts"
+import { BoardEdge, BoardNode, Draft } from "./board.ts"
 
 /** A point in board (world) coordinates, independent of each viewer's pan/zoom. */
 export const Point = Schema.Struct({ x: Schema.Number, y: Schema.Number })
@@ -64,6 +64,7 @@ export class Welcome extends Schema.TaggedClass<Welcome>()("Welcome", {
   users: Schema.Array(User),
   /** Committed board. */
   nodes: Schema.Array(BoardNode),
+  edges: Schema.optionalWith(Schema.Array(BoardEdge), { default: () => [] }),
   /** Everyone's live drafts, so late joiners see ideas already forming. */
   drafts: Schema.Array(Draft),
 }) {}
@@ -96,6 +97,7 @@ export class DraftCleared extends Schema.TaggedClass<DraftCleared>()("DraftClear
 
 export class NodesCommitted extends Schema.TaggedClass<NodesCommitted>()("NodesCommitted", {
   nodes: Schema.Array(BoardNode),
+  edges: Schema.optionalWith(Schema.Array(BoardEdge), { default: () => [] }),
 }) {}
 
 /** Committed nodes changed in place (moves, pins). Last write wins per node. */
@@ -105,6 +107,8 @@ export class NodesUpdated extends Schema.TaggedClass<NodesUpdated>()("NodesUpdat
 
 export class NodesRemoved extends Schema.TaggedClass<NodesRemoved>()("NodesRemoved", {
   ids: Schema.Array(Schema.String),
+  /** Arrows attached to the removed nodes. */
+  edgeIds: Schema.optionalWith(Schema.Array(Schema.String), { default: () => [] }),
 }) {}
 
 export const ServerMessage = Schema.Union(

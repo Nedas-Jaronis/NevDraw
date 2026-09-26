@@ -1,5 +1,5 @@
 import { Schema } from "effect"
-import { Layout, NodeType } from "./registry.ts"
+import { EdgeKind, Layout, NodeType } from "./registry.ts"
 
 export const NodeProps = Schema.Struct({
   layout: Schema.optional(Layout),
@@ -28,11 +28,24 @@ export const BoardNode = Schema.Struct({
 })
 export type BoardNode = typeof BoardNode.Type
 
+/** A typed arrow between two elements ("api writes to postgres"). */
+export const BoardEdge = Schema.Struct({
+  id: Schema.String,
+  from: Schema.String,
+  to: Schema.String,
+  kind: EdgeKind,
+  label: Schema.optional(Schema.String),
+  authorId: Schema.String,
+  authorColor: Schema.String,
+})
+export type BoardEdge = typeof BoardEdge.Type
+
 /** One user's live, unsaved interpretation of their input box. */
 export const Draft = Schema.Struct({
   userId: Schema.String,
   /** The raw text, shown to others as "X is typing: …". */
   text: Schema.String,
   nodes: Schema.Array(BoardNode),
+  edges: Schema.optionalWith(Schema.Array(BoardEdge), { default: () => [] }),
 })
 export type Draft = typeof Draft.Type

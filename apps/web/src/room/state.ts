@@ -1,4 +1,4 @@
-import type { BoardNode, Draft, PieceDebug, ServerMessage, User } from "@rtw/shared"
+import type { BoardEdge, BoardNode, Draft, PieceDebug, ServerMessage, User } from "@rtw/shared"
 
 export type ConnectionStatus = "connecting" | "open" | "reconnecting"
 
@@ -8,6 +8,7 @@ export type RoomState = {
   users: ReadonlyMap<string, User>
   /** Committed layer. */
   nodes: ReadonlyMap<string, BoardNode>
+  edges: ReadonlyMap<string, BoardEdge>
   /** Draft layer, keyed by the typing user's id. */
   drafts: ReadonlyMap<string, Draft>
   /** How each draft's pieces were classified (for ?debug=1), keyed by user id. */
@@ -19,6 +20,7 @@ export const initialRoomState: RoomState = {
   selfId: null,
   users: new Map(),
   nodes: new Map(),
+  edges: new Map(),
   drafts: new Map(),
   debug: new Map(),
 }
@@ -40,6 +42,7 @@ export function applyServerMessage(state: RoomState, msg: ServerMessage): RoomSt
         selfId: msg.selfId,
         users: new Map(msg.users.map((u) => [u.id, u])),
         nodes: new Map(msg.nodes.map((n) => [n.id, n])),
+        edges: new Map(msg.edges.map((e) => [e.id, e])),
         drafts: new Map(msg.drafts.map((d) => [d.userId, d])),
         debug: new Map(),
       }
@@ -64,7 +67,13 @@ export function applyServerMessage(state: RoomState, msg: ServerMessage): RoomSt
       const drafts = without(state.drafts, msg.userId)
       return drafts === state.drafts ? state : { ...state, drafts, debug: without(state.debug, msg.userId) }
     }
-    case "NodesCommitted":
+    case "NodesCommitted": {
+      const nodes = new Map(state.nodes)
+      for (const n of msg.nodes) nodes.set(n.id, n)
+      const edges = new Map(state.edges)
+      for (const e of msg.edges) edges.set(e.id, e)
+      return { ...state, nodes, edges }
+    }
     case "NodesUpdated": {
       const nodes = new Map(state.nodes)
       for (const n of msg.nodes) nodes.set(n.id, n)
@@ -73,7 +82,9 @@ export function applyServerMessage(state: RoomState, msg: ServerMessage): RoomSt
     case "NodesRemoved": {
       const nodes = new Map(state.nodes)
       for (const id of msg.ids) nodes.delete(id)
-      return { ...state, nodes }
+      const edges = new Map(state.edges)
+      for (const id of msg.edgeIds) edges.delete(id)
+      return { ...state, nodes, edges }
     }
   }
 }

@@ -1,4 +1,4 @@
-import type { EntryGraph, EntryNode } from "@rtw/shared"
+import type { EntryEdge, EntryGraph, EntryNode } from "@rtw/shared"
 import { labelFrom } from "../classify/keywords.ts"
 import type { PieceAnswers } from "./answers.ts"
 import type { Piece } from "./split.ts"
@@ -42,19 +42,43 @@ function cleanLabel(text: string, repeated: boolean): string {
  * - "," / "and" makes a sibling of the previous piece.
  * Layout phrases apply to a single container itself, otherwise to the parent.
  * Repeats ("three cards") become a group section holding the copies.
+ * Relation verbs make arrows; arrow targets are top-level elements, and a
+ * name used twice in one entry is the same element.
  */
 export function assemble(pieces: readonly Piece[], answers: readonly PieceAnswers[]): EntryGraph {
   const nodes: MutableNode[] = []
+  const edges: EntryEdge[] = []
   const byKey = new Map<string, MutableNode>()
+  /** Which node key each piece became (a repeated name reuses the earlier node). */
+  const keyOfPiece = new Map<number, string>()
+  /** Top-level/edge nodes by label, so "api … api" is one element. */
+  const byLabel = new Map<string, string>()
   let prev: { key: string; parent: string | null; container: boolean } | null = null
+
+  const addEdge = (from: string | undefined, to: string, kind: EntryEdge["kind"]) => {
+    if (!from || from === to || edges.some((e) => e.from === from && e.to === to && e.kind === kind)) return
+    edges.push({ from, to, kind })
+  }
 
   pieces.forEach((piece, i) => {
     const a = answers[i]
     if (!a) return
     const container = a.isContainer >= YES
+    const edge = piece.connector === "edge" ? piece.edge : undefined
+
+    // A name already used in this entry refers to the same element.
+    const sameName = byLabel.get(cleanLabel(piece.text, false).toLowerCase())
+    if (sameName && countOf(piece.text) === 1) {
+      keyOfPiece.set(piece.index, sameName)
+      if (edge) addEdge(keyOfPiece.get(edge.from), sameName, edge.kind)
+      const n = byKey.get(sameName)!
+      prev = { key: sameName, parent: n.parent, container: a.isContainer >= YES }
+      return
+    }
 
     let parent: string | null = null
-    if (piece.connector !== "start" && prev) {
+    // Arrow targets are separate elements, never nested.
+    if (!edge && piece.connector !== "start" && prev) {
       const nest = piece.connector === "with" || a.childOfContainer >= YES
       parent = nest && prev.container ? prev.key : prev.parent
     }
@@ -75,9 +99,12 @@ export function assemble(pieces: readonly Piece[], answers: readonly PieceAnswer
         props: { layout: layout ?? "row" },
       }
       nodes.push(group)
+      byKey.set(key, group)
       for (let r = 0; r < count; r++) {
         nodes.push({ key: `${key}.${r}`, type: a.nodeType.value, label, parent: key, props: {} })
       }
+      keyOfPiece.set(piece.index, key)
+      if (edge) addEdge(keyOfPiece.get(edge.from), key, edge.kind)
       prev = { key, parent, container: true }
       return
     }
@@ -85,6 +112,9 @@ export function assemble(pieces: readonly Piece[], answers: readonly PieceAnswer
     const node: MutableNode = { key, type: a.nodeType.value, label: cleanLabel(piece.text, false), parent, props: {} }
     nodes.push(node)
     byKey.set(key, node)
+    keyOfPiece.set(piece.index, key)
+    if (parent === null) byLabel.set(node.label.toLowerCase(), key)
+    if (edge) addEdge(keyOfPiece.get(edge.from), key, edge.kind)
 
     if (layout) {
       // "section in a grid" lays out the section itself; a leaf's phrase lays out its parent.
@@ -95,5 +125,5 @@ export function assemble(pieces: readonly Piece[], answers: readonly PieceAnswer
     prev = { key, parent, container }
   })
 
-  return { nodes, edges: [], suggestions: [] }
+  return { nodes, edges, suggestions: [] }
 }
