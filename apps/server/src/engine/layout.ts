@@ -80,8 +80,10 @@ export function estimateSizes(nodes: readonly BoardNode[]): Map<string, Size> {
     if (n.type === "list") return pad + TITLE + rows * (n.props.of === "timer" ? 34 : 24)
     if (n.type === "checklist") return pad + TITLE + rows * 30
     if (n.type === "poll") return pad + TITLE + (n.props.items?.length ?? 2) * 36
-    if (!REGISTRY[n.type].container) return pad + TITLE + (SKETCH_H[n.type] ?? 0)
     const kids = (children.get(n.id) ?? []).sort((a, b) => a.order - b.order)
+    // A leaf can hold embedded media ("an image in the hero") below its own body.
+    if (!REGISTRY[n.type].container)
+      return pad + TITLE + (SKETCH_H[n.type] ?? 0) + kids.reduce((s, k) => s + GAP + height(k, false), 0)
     if (kids.length === 0) return pad + TITLE + 10 + 64
     const hs = kids.map((k) => height(k, false))
     const layout = n.props.layout ?? REGISTRY[n.type].defaultLayout

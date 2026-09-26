@@ -73,6 +73,7 @@ export type Session = {
   readonly moveNode: (id: string, x: number, y: number, final: boolean) => Effect.Effect<void>
   readonly deleteNode: (id: string) => Effect.Effect<void>
   readonly setImage: (id: string, src: string | null) => Effect.Effect<void>
+  readonly dropImage: (parent: string, src: string) => Effect.Effect<void>
   readonly leave: Effect.Effect<void>
 }
 
@@ -164,10 +165,10 @@ export const RoomsLive = Layer.effect(
     }
 
     const handleInfo = (room: Room): HandleInfo => {
-      const info = new Map<string, { container: boolean; type: BoardNode["type"] }>()
+      const info = new Map<string, { container: boolean; type: BoardNode["type"]; label: string }>()
       for (const [h, id] of room.handles) {
         const n = room.nodes.get(id)
-        if (n) info.set(h, { container: REGISTRY[n.type].container, type: n.type })
+        if (n) info.set(h, { container: REGISTRY[n.type].container, type: n.type, label: n.label })
       }
       return info
     }
@@ -500,6 +501,33 @@ export const RoomsLive = Layer.effect(
               room.nodes.set(id, next)
               yield* store.upsert(roomId, [next])
               yield* broadcast(room, new NodesUpdated({ nodes: [next] }))
+            }),
+
+          dropImage: (parentId, src) =>
+            Effect.gen(function* () {
+              const parent = room.nodes.get(parentId)
+              const me = self()
+              if (!parent || !me || !isImageSrc(src)) return
+              const order = [...room.nodes.values()].filter((n) => n.parent === parentId).reduce((m, n) => Math.max(m, n.order + 1), 0)
+              const image: BoardNode = {
+                id: crypto.randomUUID(),
+                type: "image",
+                label: "Image",
+                parent: parentId,
+                order,
+                props: { src },
+                x: 0,
+                y: 0,
+                pinned: false,
+                authorId: me.id,
+                authorColor: me.color,
+              }
+              room.nodes.set(image.id, image)
+              const [named] = withHandles(room, [image])
+              const saved = named ?? image
+              yield* store.upsert(roomId, [saved])
+              yield* broadcast(room, new NodesCommitted({ nodes: [saved], edges: [] }))
+              yield* relayout(room)
             }),
 
           deleteNode: (id) =>

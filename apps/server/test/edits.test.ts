@@ -187,3 +187,26 @@ describe("positions among siblings", () => {
     expect((await place("add a notice at the top of @landing-page")).order).toBe(-1)
   })
 })
+
+describe("embedding media in the element you name", () => {
+  const h = new Map([
+    ["@hero-area", { container: false, type: "hero" as const, label: "Hero area" }],
+    ["@pricing-card", { container: true, type: "card" as const, label: "Pricing card" }],
+    ["@landing-page", { container: true, type: "page" as const, label: "Landing page" }],
+  ])
+  const where = (t: string) => interpretOffline(t, h).nodes.map((n) => `${n.type}<${n.parent}`)
+  test.each([
+    ["embed an image in @hero-area", "image<@hero-area"],
+    ["embed an image in the hero area", "image<@hero-area"],
+    ["put a photo inside @hero-area", "image<@hero-area"],
+    ["add an image to @pricing-card", "image<@pricing-card"],
+    ["a video on the pricing card", "video<@pricing-card"],
+    ["a signup form in the landing page", "form<@landing-page"],
+  ] as const)("%p", (text, expected) => {
+    expect(where(text)).toEqual([expected])
+  })
+  test("non-media can't go inside a leaf; unknown names stay top-level", () => {
+    expect(where("a button in the hero area")).toEqual(["button<null"])
+    expect(where("an image in the footer")).toEqual(["image<null"])
+  })
+})

@@ -3,6 +3,7 @@ import {
   Commit,
   DeleteNode,
   Discard,
+  DropImage,
   MoveCursor,
   MoveNode,
   NodesUpdated,
@@ -86,7 +87,13 @@ export function Board({ roomId, identity }: { roomId: string; identity: Identity
     for (const [id, p] of moves) send(new MoveNode({ id, x: p.x, y: p.y, final: false }))
   })
 
-  const boardActions = useMemo(() => ({ setImage: (id: string, src: string | null) => send(new SetImage({ id, src })) }), [send])
+  const boardActions = useMemo(
+    () => ({
+      setImage: (id: string, src: string | null) => send(new SetImage({ id, src })),
+      dropImage: (parent: string, src: string) => send(new DropImage({ parent, src })),
+    }),
+    [send],
+  )
   const handles = useMemo(
     () =>
       [...state.nodes.values()].flatMap((n) => (n.handle ? [{ handle: n.handle, label: n.label, type: n.type }] : [])),
