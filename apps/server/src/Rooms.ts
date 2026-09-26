@@ -14,7 +14,7 @@ import {
 } from "@rtw/shared"
 import { Context, Deferred, Effect, Layer, Queue } from "effect"
 import { BoardStore } from "./BoardStore.ts"
-import { buildDraft } from "./drafts.ts"
+import { type DraftMemory, interpretOffline, materialize } from "./engine/index.ts"
 
 /** One connected socket in a room. Messages are queued; the socket's own fiber drains them. */
 type Client = {
@@ -28,6 +28,8 @@ type Room = {
   nodes: Map<string, BoardNode>
   /** Draft layer: one per typing user, never persisted. */
   drafts: Map<string, Draft>
+  /** Which board id each of a user's draft keys became (server-only). */
+  memory: Map<string, DraftMemory>
   /** Resolves once the committed layer has been loaded from the store. */
   ready: Deferred.Deferred<void>
 }
@@ -77,7 +79,7 @@ export const RoomsLive = Layer.effect(
           yield* Deferred.await(existing.ready)
           return existing
         }
-        const room: Room = { clients: new Map(), nodes: new Map(), drafts: new Map(), ready }
+        const room: Room = { clients: new Map(), nodes: new Map(), drafts: new Map(), memory: new Map(), ready }
         rooms.set(roomId, room)
         for (const n of yield* store.load(roomId)) room.nodes.set(n.id, n)
         yield* Deferred.succeed(ready, undefined)
@@ -103,9 +105,10 @@ export const RoomsLive = Layer.effect(
 
         const self = () => room.clients.get(user.id)?.user
 
-        const clearDraft = Effect.suspend(() =>
-          room.drafts.delete(user.id) ? broadcast(room, new DraftCleared({ userId: user.id })) : Effect.void,
-        )
+        const clearDraft = Effect.suspend(() => {
+          room.memory.delete(user.id)
+          return room.drafts.delete(user.id) ? broadcast(room, new DraftCleared({ userId: user.id })) : Effect.void
+        })
 
         const session: Session = {
           selfId: user.id,
@@ -122,13 +125,17 @@ export const RoomsLive = Layer.effect(
               const me = self()
               if (!me) return Effect.void
               if (!text.trim()) return clearDraft
-              const draft = buildDraft({
-                text,
+              const graph = interpretOffline(text)
+              if (graph.nodes.length === 0) return clearDraft
+              const memory = materialize({
+                graph,
+                prev: room.memory.get(user.id),
                 anchor,
                 user: me,
-                prev: room.drafts.get(user.id),
                 newId: () => crypto.randomUUID(),
               })
+              const draft: Draft = { userId: user.id, text, nodes: memory.nodes }
+              room.memory.set(user.id, memory)
               room.drafts.set(user.id, draft)
               return broadcast(room, new DraftUpdated({ draft }))
             }),
@@ -137,6 +144,7 @@ export const RoomsLive = Layer.effect(
             const draft = room.drafts.get(user.id)
             if (!draft || draft.nodes.length === 0) return
             room.drafts.delete(user.id)
+            room.memory.delete(user.id)
             for (const n of draft.nodes) room.nodes.set(n.id, n)
             yield* store.upsert(roomId, draft.nodes)
             yield* broadcast(room, new NodesCommitted({ nodes: draft.nodes }))

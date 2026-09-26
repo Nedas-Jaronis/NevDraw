@@ -147,3 +147,22 @@ test("each client's messages apply in order (type, commit, type again)", async (
   const tags = b.c.received.map((m) => (m._tag === "DraftUpdated" ? `Draft:${m.draft.text}` : m._tag))
   expect(tags.slice(tags.indexOf("Draft:api"))).toEqual(["Draft:api", "NodesCommitted", "DraftCleared", "Draft:worker"])
 })
+
+test("a nested entry arrives as a page draft with its children linked in order", async () => {
+  const s = await boot()
+  const a = await join(s.url, "r", "Ada")
+  const b = await join(s.url, "r", "Bo")
+  a.c.send(new SetInput({ text: "landing page with navbar, hero, pricing table and signup form", anchor }))
+  const { draft } = await b.c.waitFor(is("DraftUpdated"))
+  const [page, ...kids] = draft.nodes
+  expect(page).toMatchObject({ type: "page", parent: null })
+  expect(kids.map((k) => [k.type, k.parent, k.order])).toEqual([
+    ["navbar", page!.id, 0],
+    ["hero", page!.id, 1],
+    ["table", page!.id, 2],
+    ["form", page!.id, 3],
+  ])
+  a.c.send(new Commit())
+  const committed = await b.c.waitFor(is("NodesCommitted"))
+  expect(committed.nodes.map((n) => n.id)).toEqual(draft.nodes.map((n) => n.id))
+})

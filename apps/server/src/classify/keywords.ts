@@ -16,21 +16,24 @@ const MATCHERS = NODE_TYPES.flatMap((type) =>
 
 /**
  * Offline classifier with the same output shape Jev will produce.
- * Scores each type by its matched keywords (longer phrases weigh more);
- * the earliest mention breaks ties, since "landing page with a form" is a page.
+ * Scores each type by its matched keywords (longer phrases weigh more). The
+ * rightmost mention wins, because the head noun of an English noun phrase
+ * comes last: "signup button" is a button, "pricing table" a table. (The
+ * splitter has already cut "landing page with a form" into two pieces.)
  */
 export function classifyKeywords(text: string): KeywordGuess {
   const t = text.toLowerCase()
-  const scores = new Map<NodeType, { score: number; first: number }>()
+  const scores = new Map<NodeType, { score: number; last: number }>()
   for (const m of MATCHERS) {
     const hit = m.re.exec(t)
     if (!hit) continue
-    const prev = scores.get(m.type) ?? { score: 0, first: Number.POSITIVE_INFINITY }
-    scores.set(m.type, { score: prev.score + m.kw.length, first: Math.min(prev.first, hit.index) })
+    const end = hit.index + hit[0].length
+    const prev = scores.get(m.type) ?? { score: 0, last: Number.NEGATIVE_INFINITY }
+    scores.set(m.type, { score: prev.score + m.kw.length, last: Math.max(prev.last, end) })
   }
   if (scores.size === 0) return { type: "box", confidence: 0.3, probabilities: { box: 1 } }
 
-  const ranked = [...scores.entries()].sort((a, b) => a[1].first - b[1].first || b[1].score - a[1].score)
+  const ranked = [...scores.entries()].sort((a, b) => b[1].last - a[1].last || b[1].score - a[1].score)
   const total = [...scores.values()].reduce((s, v) => s + v.score, 0)
   const probabilities = Object.fromEntries(ranked.map(([k, v]) => [k, v.score / total])) as Partial<Record<NodeType, number>>
   const [top] = ranked[0]!
