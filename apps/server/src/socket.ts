@@ -50,6 +50,8 @@ export const roomSocket = Effect.gen(function* () {
         return session.moveNode(msg.id, msg.x, msg.y, msg.final)
       case "DeleteNode":
         return session.deleteNode(msg.id)
+      case "SetImage":
+        return session.setImage(msg.id, msg.src)
     }
   }
 

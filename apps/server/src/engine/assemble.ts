@@ -109,6 +109,10 @@ const TIER: Partial<Record<NodeType, number>> = {
 }
 const tierOf = (t: NodeType | undefined) => (t ? (TIER[t] ?? (REGISTRY[t].lane === "ui" ? 0 : 2)) : 2)
 
+/** Sentinels for "at the top / bottom" of a container. */
+export const TOP = "$top"
+export const BOTTOM = "$bottom"
+
 const WRAPPER_WORDS = /\b(box|wrapper|container|group|block|frame)\b/i
 
 const HANDLE_IN = /@[a-z0-9][a-z0-9-]*/gi
@@ -310,6 +314,15 @@ export function assemble(
     nodes.push(node)
     byKey.set(key, node)
     keyOfPiece.set(piece.index, key)
+    // "between @a and @b", "above @x", "at the bottom of @page": position among siblings.
+    if (piece.place && !edge) {
+      const pl = piece.place
+      if (pl.parent && handles.get(pl.parent)?.container && node.parent === null) node.parent = pl.parent
+      if (pl.after) node.after = pl.after
+      if (pl.before) node.before = pl.before
+      if (pl.end === "top") node.before = TOP
+      if (pl.end === "bottom") node.after = BOTTOM
+    }
     if (parent === null) byLabel.set(node.label.toLowerCase(), key)
     if (piece.wrap) moveInto(piece.wrap === "recent" ? recent : piece.wrap, key)
     if (edge) addEdge(keyOfPiece.get(edge.from), key, edge.kind, edge.label)

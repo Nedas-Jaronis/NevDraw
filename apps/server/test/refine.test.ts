@@ -11,9 +11,9 @@ import { is, startServer, TestClient } from "./helpers.ts"
 
 const llmGraph: LlmGraph = {
   nodes: [
-    { key: "p0", type: "service", label: "Checkout", parent: "", layout: "none", of: "none", items: [], color: "" },
-    { key: "n1", type: "external-api", label: "Stripe", parent: "", layout: "none", of: "none", items: [], color: "" },
-    { key: "n2", type: "queue", label: "Email queue", parent: "", layout: "none", of: "none", items: [], color: "" },
+    { key: "p0", type: "service", label: "Checkout", parent: "", layout: "none", of: "none", items: [], color: "", after: "", before: "" },
+    { key: "n1", type: "external-api", label: "Stripe", parent: "", layout: "none", of: "none", items: [], color: "", after: "", before: "" },
+    { key: "n2", type: "queue", label: "Email queue", parent: "", layout: "none", of: "none", items: [], color: "", after: "", before: "" },
   ],
   edges: [
     { from: "p0", to: "n1", kind: "calls" },
@@ -27,9 +27,9 @@ describe("LLM wire format", () => {
   test("fromLlm maps '' to top level, 'none' to no layout, and drops self-loops", () => {
     const g = fromLlm({
       nodes: [
-        { key: "a", type: "page", label: " Home ", parent: "", layout: "row", of: "none", items: [], color: "" },
-        { key: "b", type: "hero", label: "Hero", parent: "a", layout: "none", of: "none", items: [], color: "" },
-        { key: "c", type: "text", label: "Orphan", parent: "zzz", layout: "none", of: "none", items: [], color: "" },
+        { key: "a", type: "page", label: " Home ", parent: "", layout: "row", of: "none", items: [], color: "", after: "", before: "" },
+        { key: "b", type: "hero", label: "Hero", parent: "a", layout: "none", of: "none", items: [], color: "", after: "", before: "" },
+        { key: "c", type: "text", label: "Orphan", parent: "zzz", layout: "none", of: "none", items: [], color: "", after: "", before: "" },
       ],
       edges: [{ from: "a", to: "a", kind: "calls" }],
       suggestions: [],
@@ -44,10 +44,10 @@ describe("LLM wire format", () => {
   })
 
   test("the prompt carries the text, the board's handles and the draft's keys", () => {
-    const u = JSON.parse(userPrompt({ text: "x", board: [{ handle: "@db", type: "database", label: "Db", parent: null }], draft: [{ key: "p0", type: "box", label: "X", parent: null }] }))
+    const u = JSON.parse(userPrompt({ text: "x", board: [{ handle: "@db", type: "database", label: "Db", parent: null, order: 0 }], draft: [{ key: "p0", type: "box", label: "X", parent: null }] }))
     expect(u).toEqual({
       text: "x",
-      board: [{ handle: "@db", type: "database", label: "Db", parent: null }],
+      board: [{ handle: "@db", type: "database", label: "Db", parent: null, order: 0 }],
       recent: [],
       draft: [{ key: "p0", type: "box", label: "X", parent: null }],
     })
@@ -104,8 +104,8 @@ describe("providers against mock HTTP servers", () => {
     const garbled = {
       nodes: [
         { "key 다": "n1", type: "page", label: "Checkout page", parent: "", "layout поздрав": "none" },
-        { key: "n2", type: "external-api", label: "Stripe", parent: "", layout: "none", of: "none", items: [], color: "" },
-        { key: "n3", type: "queue", label: "Email queue", parent: "", layout: "none", of: "none", items: [], color: "" },
+        { key: "n2", type: "external-api", label: "Stripe", parent: "", layout: "none", of: "none", items: [], color: "", after: "", before: "" },
+        { key: "n3", type: "queue", label: "Email queue", parent: "", layout: "none", of: "none", items: [], color: "", after: "", before: "" },
       ],
       edges: [
         { sourceuib: "n1", target: "n2", kind: "calls" },

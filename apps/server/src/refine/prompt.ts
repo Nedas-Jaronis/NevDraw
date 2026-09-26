@@ -21,6 +21,9 @@ export const LlmGraph = Schema.Struct({
       items: Schema.Array(Schema.String),
       /** Accent color as #rrggbb when the text names or implies one, else "". */
       color: Schema.String,
+      /** Position among siblings: right after / right before this key or @handle, else "". */
+      after: Schema.String,
+      before: Schema.String,
     }),
   ),
   edges: Schema.Array(Schema.Struct({ from: Schema.String, to: Schema.String, kind: EdgeKind })),
@@ -47,6 +50,8 @@ export function fromLlm(g: LlmGraph): EntryGraph {
       type: n.type,
       label: n.label.trim().slice(0, 60) || n.type,
       parent: validParent(n.parent.trim()),
+      ...(n.after.trim() ? { after: n.after.trim().toLowerCase() } : {}),
+      ...(n.before.trim() ? { before: n.before.trim().toLowerCase() } : {}),
       props: {
         ...(n.layout === "none" ? {} : { layout: n.layout }),
         ...(n.of !== "none" ? { of: n.of } : {}),
@@ -68,7 +73,7 @@ export function fromLlm(g: LlmGraph): EntryGraph {
   }
 }
 
-const FIELDS = ["nodes", "edges", "suggestions", "patches", "element", "key", "type", "label", "parent", "layout", "items", "of", "color", "from", "to", "kind", "text", "handle", "source", "target"]
+const FIELDS = ["nodes", "edges", "suggestions", "patches", "element", "after", "before", "key", "type", "label", "parent", "layout", "items", "of", "color", "from", "to", "kind", "text", "handle", "source", "target"]
 
 /**
  * Safety net for models that bend the shape in plain JSON mode: garbled
@@ -102,6 +107,8 @@ export function normalizeLlmJson(raw: unknown): unknown {
       of: n?.of ?? "none",
       items: Array.isArray(n?.items) ? n.items.map(String) : [],
       color: typeof n?.color === "string" ? n.color : "",
+      after: typeof n?.after === "string" ? n.after : "",
+      before: typeof n?.before === "string" ? n.before : "",
     })),
     edges: Array.isArray(g.edges) ? g.edges : [],
     suggestions: Array.isArray(g.suggestions) ? g.suggestions : [],
@@ -115,7 +122,7 @@ export function normalizeLlmJson(raw: unknown): unknown {
   }
 }
 
-export type BoardSummaryItem = { handle: string; type: string; label: string; parent: string | null }
+export type BoardSummaryItem = { handle: string; type: string; label: string; parent: string | null; order: number }
 
 export type RefineInput = {
   text: string
@@ -136,6 +143,8 @@ ${NODE_TYPES.map((t) => `  ${t}: ${REGISTRY[t].describe}`).join("\n")}
 - parent: the key of the element it sits inside, an existing @handle it sits inside, or "" for top level. Only page, section, form, card and modal hold children. Architecture elements are never children.
 - layout: "row", "grid" or "stack" when the text asks how a container arranges its children, otherwise "none".
 - Repeated items ("three pricing cards") become that many separate nodes inside one section.
+- Position: the board lists each element's parent and its "order" among siblings (the page's top-to-bottom structure). "between @navbar and @call-to-action" → parent = their parent, after "@navbar", before "@call-to-action"; "above @x" → before "@x"; "below @x" → after "@x"; otherwise after and before are "".
+- Systems: "5 servers behind a load balancer to 3 databases" → the load balancer calls each server and each server writes to the databases. Never chain edges between siblings (server 1 → server 2) unless the text says so.
 - Numbers with units are values, not counts: "25 min timer" is one timer labelled "25 min timer".
 - Collections: "a table/list of X" is ONE node of type table/list with "of" = X's type and "items" = its rows. Compute values the text asks for: "a table of timers with increments of 15" → type "table", of "timer", items ["15 min","30 min","45 min","60 min"]. Lists after a colon are items: "a checklist: milk, eggs" → items ["Milk","Eggs"]. Use items for poll options, tab names, select options and table rows too. Otherwise items is [] and "of" is "none".
 - color: "#rrggbb" when the text names a color or clearly implies one, else "". Use this palette: ${ACCENT_NAMES.map((a) => `${a} ${ACCENTS[a].hex}`).join(", ")} ("delete button" → red, "success banner" → green, "dark mode" → dark). Don't color whole pages or sections unless the text asks.

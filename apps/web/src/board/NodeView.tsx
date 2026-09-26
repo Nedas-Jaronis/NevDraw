@@ -68,15 +68,19 @@ export function RootView(props: {
   )
 }
 
-/** A nested element: laid out by its parent's CSS flow, animated on reflow. */
+/**
+ * A nested element, laid out by its parent's CSS flow. It fades in and out but
+ * never uses Motion's `layout` animation: that measures in screen space and
+ * ignores the board's zoom transform, so at any zoom other than 100% nested
+ * elements "flew" in and out on every click and re-render.
+ */
 function ChildView({ item, tree, compact }: { item: Item; tree: Tree; compact: boolean }) {
   return (
     <motion.div
-      layout
-      initial={{ opacity: 0, scale: 0.96 }}
-      animate={{ opacity: 1, scale: 1 }}
-      exit={{ opacity: 0, scale: 0.96, transition: { duration: 0.14 } }}
-      transition={spring}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0, transition: { duration: 0.12 } }}
+      transition={{ duration: 0.16 }}
       className="min-w-0"
     >
       <Frame node={item.node} draft={item.draft}>
@@ -130,7 +134,7 @@ const LAYOUT_CLASS = {
 function Body({ item, tree, compact = false }: { item: Item; tree: Tree; compact?: boolean }) {
   const { node, draft } = item
   const showAuthor = !draft && node.parent === null
-  if (!isContainer(node)) return <Wire node={node} showAuthor={showAuthor} compact={compact} />
+  if (!isContainer(node)) return <Wire node={node} showAuthor={showAuthor} compact={compact} draft={draft} />
   const layout = node.props.layout ?? "stack"
 
   const kids = tree.children.get(node.id) ?? []

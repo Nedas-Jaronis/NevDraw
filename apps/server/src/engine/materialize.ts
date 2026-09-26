@@ -1,5 +1,6 @@
 import type { BoardEdge, BoardNode, EntryGraph, NodePatch, Point, User } from "@rtw/shared"
 import { REGISTRY } from "@rtw/shared"
+import { layeredPositions } from "./layered.ts"
 
 export const TOP_LEVEL_GAP = 96
 /** Horizontal room for an arrow between a source and its target. */
@@ -78,6 +79,23 @@ export function materialize(input: {
   const incoming = new Map<string, string>()
   for (const e of graph.edges) if (!incoming.has(e.to)) incoming.set(e.to, e.from)
 
+  // Connected elements of this entry are laid out as a flowchart. Elements that already
+  // have a spot keep it; the flowchart is anchored to them so new ones slot into the same grid.
+  const typeOf = new Map(graph.nodes.map((n) => [n.key, n.type]))
+  const flow = layeredPositions(graph, (k) => widthOf(typeOf.get(k) ?? "box"))
+  let flowOffset: { x: number; y: number } | null = null
+  for (const [k, p] of flow) {
+    const before = prevById.get(keyToId.get(k)!)
+    if (before && before.parent === null) {
+      flowOffset = { x: before.x - p.x, y: before.y - p.y }
+      break
+    }
+  }
+  if (!flowOffset && flow.size) {
+    const right = Math.max(...[...flow].map(([k, p]) => p.x + widthOf(typeOf.get(k) ?? "box")))
+    flowOffset = { x: Math.round(anchor.x - right / 2), y: Math.round(anchor.y - 120) }
+  }
+
   const siblingOrder = new Map<string | null, number>()
   const placed = new Map<string, BoardNode>()
   const placedById = new Map<string, BoardNode>()
@@ -96,11 +114,40 @@ export function materialize(input: {
   let nextX: number | null = null
   const nodes: BoardNode[] = []
 
+  /** Committed children of a container, in order. */
+  const childrenOf = (parentId: string) =>
+    [...board.byId.values()].filter((c) => c.parent === parentId).sort((a, b) => a.order - b.order)
+  /** "after @a" / "before @b" / "between" / top / bottom → an order between the neighbours. */
+  const positioned = (n: EntryGraph["nodes"][number], parent: string | null): { parent: string | null; order: number } | null => {
+    if (!n.after && !n.before) return null
+    const sib = (ref: string | undefined) => (ref && !ref.startsWith("$") ? lookup(ref) : undefined)
+    const a = sib(n.after)
+    const b = sib(n.before)
+    const p = parent ?? a?.parent ?? b?.parent ?? null
+    if (!p) return null
+    const kids = childrenOf(p)
+    if (n.before === "$top") return { parent: p, order: (kids[0]?.order ?? 1) - 1 }
+    if (n.after === "$bottom") return { parent: p, order: (kids.at(-1)?.order ?? -1) + 1 }
+    if (a && b && a.parent === p && b.parent === p) return { parent: p, order: (a.order + b.order) / 2 }
+    if (a && a.parent === p) {
+      const next = kids.find((k) => k.order > a.order)
+      return { parent: p, order: next ? (a.order + next.order) / 2 : a.order + 1 }
+    }
+    if (b && b.parent === p) {
+      const prev = [...kids].reverse().find((k) => k.order < b.order)
+      return { parent: p, order: prev ? (prev.order + b.order) / 2 : b.order - 1 }
+    }
+    return null
+  }
+
   for (const n of graph.nodes) {
     const id = keyToId.get(n.key)!
-    const parent = n.parent && keyToId.has(n.parent) ? keyToId.get(n.parent)! : null
-    const order = siblingOrder.get(parent) ?? (parent ? (committedChildren.get(parent) ?? 0) : 0)
-    siblingOrder.set(parent, order + 1)
+    const declared = n.parent && keyToId.has(n.parent) ? keyToId.get(n.parent)! : null
+    const place = positioned(n, declared)
+    const parent = place ? place.parent : declared
+    const nextOrder = siblingOrder.get(parent) ?? (parent ? (committedChildren.get(parent) ?? 0) : 0)
+    const order = place ? place.order : nextOrder
+    siblingOrder.set(parent, Math.max(nextOrder, Math.floor(order) + 1))
 
     const before = prevById.get(id)
     let x = 0
@@ -110,9 +157,13 @@ export function materialize(input: {
       // Every target of a source takes a fan slot, including ones that already have a position.
       const fan = source ? (fanOut.get(source.id) ?? 0) : 0
       if (source) fanOut.set(source.id, fan + 1)
+      const inFlow = flow.get(n.key)
       if (before && before.parent === null) {
         x = before.x
         y = before.y
+      } else if (inFlow && flowOffset) {
+        x = inFlow.x + flowOffset.x
+        y = inFlow.y + flowOffset.y
       } else if (source) {
         x = source.x + widthOf(source.type) + ARROW_GAP
         y = source.y + fan * FAN_GAP

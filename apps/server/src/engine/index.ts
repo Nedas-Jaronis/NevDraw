@@ -43,6 +43,7 @@ export function pieceStates(pieces: readonly Piece[], handles: readonly string[]
  */
 export function keepComputed(llm: EntryGraph, instant: EntryGraph): EntryGraph {
   const computed = new Map(instant.nodes.map((n) => [n.key, n.props]))
+  const placed = new Map(instant.nodes.map((n) => [n.key, n]))
   // Code-read changes (named colors, explicit renames/moves) win for the same element.
   const patches = new Map(llm.patches.map((p) => [p.target, p]))
   for (const p of instant.patches) patches.set(p.target, { ...patches.get(p.target), ...p })
@@ -52,8 +53,11 @@ export function keepComputed(llm: EntryGraph, instant: EntryGraph): EntryGraph {
     nodes: llm.nodes.map((n) => {
       const c = computed.get(n.key)
       if (!c) return n
+      const at = placed.get(n.key)
       return {
         ...n,
+        ...(at?.after ? { after: at.after } : {}),
+        ...(at?.before ? { before: at.before } : {}),
         props: {
           ...n.props,
           ...(c.color ? { color: c.color } : {}),

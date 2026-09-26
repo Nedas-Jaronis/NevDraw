@@ -52,7 +52,13 @@ export class MoveNode extends Schema.TaggedClass<MoveNode>()("MoveNode", {
 /** Delete a committed element and everything inside it. */
 export class DeleteNode extends Schema.TaggedClass<DeleteNode>()("DeleteNode", { id: Schema.String }) {}
 
-export const ClientMessage = Schema.Union(Join, MoveCursor, SetInput, Commit, Discard, MoveNode, DeleteNode)
+/** Put your own picture into an image or hero element (null removes it). */
+export class SetImage extends Schema.TaggedClass<SetImage>()("SetImage", {
+  id: Schema.String,
+  src: Schema.NullOr(Schema.String),
+}) {}
+
+export const ClientMessage = Schema.Union(Join, MoveCursor, SetInput, Commit, Discard, MoveNode, DeleteNode, SetImage)
 export type ClientMessage = typeof ClientMessage.Type
 
 // ---------------------------------------------------------------------------

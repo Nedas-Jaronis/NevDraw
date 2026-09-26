@@ -1,10 +1,23 @@
-import { type BoardNode, Commit, DeleteNode, Discard, MoveCursor, MoveNode, NodesUpdated, type Point, SetInput, type User } from "@rtw/shared"
+import {
+  type BoardNode,
+  Commit,
+  DeleteNode,
+  Discard,
+  MoveCursor,
+  MoveNode,
+  NodesUpdated,
+  type Point,
+  SetImage,
+  SetInput,
+  type User,
+} from "@rtw/shared"
 import { AnimatePresence } from "motion/react"
 import { useEffect, useMemo, useRef, useState } from "react"
 import type { Identity } from "../identity.ts"
 import { useRoom } from "../room/useRoom.ts"
 import { type Camera, panBy, pinch, toScreen, toWorld, zoomAt } from "./camera.ts"
 import { InputBox } from "./InputBox.tsx"
+import { BoardActions } from "./images.tsx"
 import { HighlightContext, RootView } from "./NodeView.tsx"
 import { DebugPanel } from "./DebugPanel.tsx"
 import { EdgeLayer } from "./EdgeLayer.tsx"
@@ -55,6 +68,7 @@ export function Board({ roomId, identity }: { roomId: string; identity: Identity
   const queueCursor = useFrameThrottle((p: Point | null) => send(new MoveCursor({ cursor: p })))
   const queueMove = useFrameThrottle((m: { id: string; x: number; y: number }) => send(new MoveNode({ ...m, final: false })))
 
+  const boardActions = useMemo(() => ({ setImage: (id: string, src: string | null) => send(new SetImage({ id, src })) }), [send])
   const handles = useMemo(
     () =>
       [...state.nodes.values()].flatMap((n) => (n.handle ? [{ handle: n.handle, label: n.label, type: n.type }] : [])),
@@ -215,6 +229,7 @@ export function Board({ roomId, identity }: { roomId: string; identity: Identity
         style={{ transform: `translate(${camera.x}px, ${camera.y}px) scale(${camera.zoom})` }}
       >
         <EdgeLayer edges={tree.edges} camera={camera} />
+        <BoardActions.Provider value={boardActions}>
         <HighlightContext.Provider value={{ handle: highlight, color }}>
         <AnimatePresence>
           {tree.roots.map((item) => (
@@ -233,6 +248,7 @@ export function Board({ roomId, identity }: { roomId: string; identity: Identity
           ))}
         </AnimatePresence>
         </HighlightContext.Provider>
+        </BoardActions.Provider>
       </div>
       {others.map((u) => u.cursor && <RemoteCursor key={u.id} user={u} at={toScreen(camera, u.cursor)} />)}
       <ZoomControls zoom={camera.zoom} onZoom={(z) => setCamera((c) => zoomAt(c, window.innerWidth / 2, window.innerHeight / 2, z))} />

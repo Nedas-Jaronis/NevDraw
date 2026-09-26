@@ -77,7 +77,7 @@ if (!looksLikeKey(env("TYPESAFE_API_KEY"))) {
 // ── LLMs ───────────────────────────────────────────────────────────────────
 const llmInput = {
   text: "the checkout page calls stripe, then it emails the user via a queue. an admin dashboard reads orders from @postgres",
-  board: [{ handle: "@postgres", type: "database", label: "Postgres", parent: null }],
+  board: [{ handle: "@postgres", type: "database", label: "Postgres", parent: null, order: 0 }],
   draft: [],
 }
 const llms = [

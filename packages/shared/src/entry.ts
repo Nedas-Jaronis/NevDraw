@@ -17,6 +17,9 @@ export const EntryNode = Schema.Struct({
   /** A local key, an `@handle`, or null for top-level. */
   parent: Schema.NullOr(Schema.String),
   props: NodeProps,
+  /** Where among its siblings: right after / right before this key or @handle ("between @a and @b" → after @a, before @b). */
+  after: Schema.optional(Schema.String),
+  before: Schema.optional(Schema.String),
 })
 export type EntryNode = typeof EntryNode.Type
 

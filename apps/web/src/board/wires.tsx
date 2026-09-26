@@ -1,5 +1,6 @@
 import { type BoardNode, type NodeType, parseColor, REGISTRY } from "@rtw/shared"
 import { type CSSProperties, type ReactNode, useEffect, useRef, useState } from "react"
+import { ImageSlot } from "./images.tsx"
 import { Title } from "./NodeView.tsx"
 import { amount, clock, durationSeconds, onColor, progressOf, route, statValue } from "./values.ts"
 
@@ -10,8 +11,8 @@ import { amount, clock, durationSeconds, onColor, progressOf, route, statValue }
  * work: timers run, checklists check, polls vote, tabs and toggles switch.
  * Interactive controls carry `data-ui` so clicking them never drags the element.
  */
-export function Wire({ node, showAuthor, compact }: { node: BoardNode; showAuthor: boolean; compact?: boolean }) {
-  const body = <Sketch node={node} />
+export function Wire({ node, showAuthor, compact, draft }: { node: BoardNode; showAuthor: boolean; compact?: boolean; draft?: boolean }) {
+  const body = <Sketch node={node} editable={!draft} />
   const accent = node.props.color
   return (
     <div style={{ "--a": accent ?? "var(--accent-default)", "--on-a": onColor(accent) } as CSSProperties}>
@@ -353,7 +354,7 @@ const ZONES: Record<string, string> = {
   india: "Asia/Kolkata", sydney: "Australia/Sydney", berlin: "Europe/Berlin", miami: "America/New_York", utc: "UTC",
 }
 
-function Sketch({ node }: { node: BoardNode }) {
+function Sketch({ node, editable }: { node: BoardNode; editable: boolean }) {
   const label = node.label
   const items = node.props.items
   switch (node.type) {
@@ -370,14 +371,17 @@ function Sketch({ node }: { node: BoardNode }) {
         </div>
       )
     case "hero":
+      // Put your own picture behind the headline: Upload / Link, or drop a file on it.
       return (
-        <div className="flex flex-col items-center gap-1.5 rounded-lg bg-[var(--a)]/[0.08] py-3">
-          <div className={`h-2.5 w-3/4 ${bar}`} />
-          <div className={`h-1.5 w-1/2 ${bar}`} />
-          <div className="mt-1">
-            <Btn filled>Get started</Btn>
+        <ImageSlot id={node.id} src={node.props.src} editable={editable} className="bg-[var(--a)]/[0.08]">
+          <div className={`flex flex-col items-center gap-1.5 py-4 ${node.props.src ? "bg-black/35 text-white" : ""}`}>
+            <div className={`h-2.5 w-3/4 rounded-full ${node.props.src ? "bg-white/70" : "bg-[var(--ink)]/10"}`} />
+            <div className={`h-1.5 w-1/2 rounded-full ${node.props.src ? "bg-white/50" : "bg-[var(--ink)]/10"}`} />
+            <div className="mt-1">
+              <Btn filled>Get started</Btn>
+            </div>
           </div>
-        </div>
+        </ImageSlot>
       )
     case "button":
       return (
@@ -399,10 +403,14 @@ function Sketch({ node }: { node: BoardNode }) {
       )
     case "image":
       return (
-        <svg viewBox="0 0 100 50" className="h-14 w-full rounded-md bg-[var(--a)]/10" preserveAspectRatio="none" aria-hidden>
-          <path d="M0 50 L30 22 L50 38 L70 18 L100 50 Z" fill="var(--a)" fillOpacity="0.25" />
-          <circle cx="78" cy="12" r="5" fill="var(--a)" fillOpacity="0.35" />
-        </svg>
+        <ImageSlot id={node.id} src={node.props.src} editable={editable} className="h-24 bg-[var(--a)]/10">
+          {!node.props.src && (
+            <svg viewBox="0 0 100 50" className="h-24 w-full" preserveAspectRatio="none" aria-hidden>
+              <path d="M0 50 L30 22 L50 38 L70 18 L100 50 Z" fill="var(--a)" fillOpacity="0.25" />
+              <circle cx="78" cy="12" r="5" fill="var(--a)" fillOpacity="0.35" />
+            </svg>
+          )}
+        </ImageSlot>
       )
     case "table":
       return <Collection node={node} table />
