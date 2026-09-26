@@ -61,7 +61,8 @@ export function aliasLabel(base: string, alias: string | undefined): string {
 /** A label without counts or layout phrases, singular when repeated. */
 function cleanLabel(text: string, repeated: boolean): string {
   // An unknown "@thing" is just text: the server never invents references.
-  const plain = text.startsWith("@") ? text.slice(1).replace(/-/g, " ") : text
+  // An @token in a label is just its words: the server never invents references.
+  const plain = text.replace(/@([a-z0-9][a-z0-9-]*)/gi, (_, h: string) => h.replace(/-/g, " "))
   // Keep numbers that are values ("25 min timer"); drop the count of repeats.
   let t = (repeated ? plain.replace(COUNT, "") : plain).replace(LAYOUT_WORDS, " ").replace(/\s+/g, " ").trim()
   if (repeated) t = t.replace(/(\w{3,}[^s])s$/i, "$1")
@@ -96,7 +97,27 @@ const TIER: Partial<Record<NodeType, number>> = {
 }
 const tierOf = (t: NodeType | undefined) => (t ? (TIER[t] ?? (REGISTRY[t].lane === "ui" ? 0 : 2)) : 2)
 
-const HANDLE_ONLY = /^@[a-z0-9][a-z0-9-]*$/i
+const HANDLE_IN = /@[a-z0-9][a-z0-9-]*/gi
+/** Words that can surround a reference without making it something new: "both the @server". */
+const REF_FILLER = new Set(
+  "the a an both also and or our my this that these those it existing same current link linked connect connected to with together up them all".split(" "),
+)
+
+/**
+ * The known @handle a piece refers to, if the piece is just that reference
+ * plus filler ("the @25-minute-timer", "both the @server"). Anything more
+ * ("a timer like @x") is a new element.
+ */
+export function referenceOf(text: string, handles: HandleInfo): string | null {
+  const found = [...text.matchAll(HANDLE_IN)].map((m) => m[0].toLowerCase()).filter((h) => handles.has(h))
+  if (new Set(found).size !== 1) return null
+  const rest = text
+    .replace(HANDLE_IN, " ")
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w && !REF_FILLER.has(w))
+  return rest.length === 0 ? found[0]! : null
+}
 
 export function assemble(
   pieces: readonly Piece[],
@@ -114,9 +135,9 @@ export function assemble(
   const byLabel = new Map<string, string>()
   let prev: { key: string; parent: string | null; container: boolean } | null = null
 
-  const addEdge = (from: string | undefined, to: string, kind: EntryEdge["kind"]) => {
+  const addEdge = (from: string | undefined, to: string, kind: EntryEdge["kind"], label?: string) => {
     if (!from || from === to || edges.some((e) => e.from === from && e.to === to && e.kind === kind)) return
-    edges.push({ from, to, kind })
+    edges.push({ from, to, kind, ...(label ? { label } : {}) })
   }
 
   pieces.forEach((piece, i) => {
@@ -139,11 +160,11 @@ export function assemble(
     const container = a.isContainer >= YES
     const edge = piece.connector === "edge" ? piece.edge : undefined
 
-    // "@postgres": a reference to a committed element, not a new one.
-    const ref = HANDLE_ONLY.test(piece.text) ? piece.text.toLowerCase() : null
-    if (ref && handles.has(ref)) {
+    // "@postgres", "the @postgres": a reference to a committed element, not a new one.
+    const ref = referenceOf(piece.text, handles)
+    if (ref) {
       keyOfPiece.set(piece.index, ref)
-      if (edge) addEdge(keyOfPiece.get(edge.from), ref, edge.kind)
+      if (edge) addEdge(keyOfPiece.get(edge.from), ref, edge.kind, edge.label)
       prev = { key: ref, parent: null, container: handles.get(ref)!.container }
       return
     }
@@ -152,7 +173,7 @@ export function assemble(
     const sameName = byLabel.get(cleanLabel(piece.text, false).toLowerCase())
     if (sameName && countOf(piece.text) === 1) {
       keyOfPiece.set(piece.index, sameName)
-      if (edge) addEdge(keyOfPiece.get(edge.from), sameName, edge.kind)
+      if (edge) addEdge(keyOfPiece.get(edge.from), sameName, edge.kind, edge.label)
       const n = byKey.get(sameName)!
       prev = { key: sameName, parent: n.parent, container: a.isContainer >= YES }
       return
@@ -190,7 +211,7 @@ export function assemble(
         nodes.push({ key: `${key}.${r}`, type: a.nodeType.value, label, parent: key, props: {} })
       }
       keyOfPiece.set(piece.index, key)
-      if (edge) addEdge(keyOfPiece.get(edge.from), key, edge.kind)
+      if (edge) addEdge(keyOfPiece.get(edge.from), key, edge.kind, edge.label)
       prev = { key, parent, container: true }
       return
     }
@@ -200,7 +221,7 @@ export function assemble(
     byKey.set(key, node)
     keyOfPiece.set(piece.index, key)
     if (parent === null) byLabel.set(node.label.toLowerCase(), key)
-    if (edge) addEdge(keyOfPiece.get(edge.from), key, edge.kind)
+    if (edge) addEdge(keyOfPiece.get(edge.from), key, edge.kind, edge.label)
 
     if (layout) {
       // "section in a grid" lays out the section itself; a leaf's phrase lays out its parent.

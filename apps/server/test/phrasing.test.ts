@@ -110,3 +110,48 @@ test("the reported flow: name a server and SQL database, then 'connect them toge
   expect(second.nodes).toEqual([])
   expect(second.edges[0]).toMatchObject({ from: srv!.id, to: db!.id })
 })
+
+describe("references with filler words", () => {
+  const h = new Map([
+    ["@25-minute-timer", { container: false, type: "timer" as const }],
+    ["@server", { container: false, type: "service" as const }],
+    ["@sql-database", { container: false, type: "database" as const }],
+  ])
+  const edges = (t: string) => interpretOffline(t, h).edges.map((e) => `${e.from} -${e.label ?? e.kind}-> ${e.to}`)
+
+  test("'the/both the @x' is the existing element, never a new one", () => {
+    expect(interpretOffline("Link the @25-minute-timer to both the @server", h).nodes).toEqual([])
+    expect(edges("Link the @25-minute-timer to both the @server")).toEqual(["@25-minute-timer -connects-> @server"])
+    expect(edges("the @server writes to the @sql-database")).toEqual(["@server -writes-> @sql-database"])
+  })
+
+  test("'… linked together' and 'link … together' draw the arrow", () => {
+    expect(edges("both the @server and @sql-database linked together")).toEqual(["@server -connects-> @sql-database"])
+    expect(edges("link the @25-minute-timer and @server together")).toEqual(["@25-minute-timer -connects-> @server"])
+  })
+
+  test("a reference with real extra words is new, and @ never leaks into labels", () => {
+    expect(shape(interpretOffline("a timer like @25-minute-timer", h))).toEqual(["timer:Timer like 25 minute timer"])
+    expect(shape(interpretOffline("@nothing-here box", h))).toEqual(["box:Nothing here box"])
+  })
+})
+
+test("the reported flow: linking to a committed timer adds an arrow, not a new timer", async () => {
+  const server = await startServer()
+  cleanups.push(() => server.stop())
+  const c = await TestClient.connect(server.url, "r")
+  cleanups.push(() => c.close())
+  c.send(new Join({ name: "Ada", color: "#e11d48" }))
+  await c.waitFor(is("Welcome"))
+  const anchor = { x: 0, y: 0 }
+  c.send(new SetInput({ text: "25 minute timer. a server", anchor }))
+  c.send(new Commit())
+  const first = await c.waitFor(is("NodesCommitted"))
+  expect(first.nodes.map((n) => n.handle)).toEqual(["@25-minute-timer", "@server"])
+
+  c.send(new SetInput({ text: "Link the @25-minute-timer to both the @server", anchor }))
+  c.send(new Commit())
+  const second = await c.waitFor(is("NodesCommitted", (m) => m.edges.length > 0))
+  expect(second.nodes).toEqual([])
+  expect(second.edges[0]).toMatchObject({ from: first.nodes[0]!.id, to: first.nodes[1]!.id, label: "connects" })
+})

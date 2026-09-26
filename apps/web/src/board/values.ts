@@ -12,7 +12,7 @@ const pad = (n: number) => String(n).padStart(2, "0")
 export function durationDisplay(label: string): string | null {
   let total = 0
   let found = false
-  for (const m of label.toLowerCase().matchAll(/(\d+(?:\.\d+)?)\s*(hours?|hrs?|h|minutes?|mins?|m|seconds?|secs?|s)\b/g)) {
+  for (const m of label.toLowerCase().matchAll(/(\d+(?:\.\d+)?)[\s-]*(hours?|hrs?|h|minutes?|mins?|m|seconds?|secs?|s)\b/g)) {
     total += Number(m[1]) * (UNIT_SECONDS[m[2]!] ?? 0)
     found = true
   }
