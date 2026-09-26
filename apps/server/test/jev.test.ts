@@ -153,11 +153,15 @@ test("typing at the end only asks Jev about the piece that changed", async () =>
   const jev = stubJev({})
   const s = await boot(jev.layer)
   const a = await join(s.url, "Ada")
+  const until = async (ok: () => boolean) => {
+    for (let i = 0; i < 100 && !ok(); i++) await Bun.sleep(20)
+  }
   a.send(new SetInput({ text: "landing page with navbar", anchor }))
-  await a.waitFor(is("DraftUpdated", (m) => m.debug?.every((d) => d.source === "jev") ?? false))
+  await until(() => jev.calls.length >= 2)
   const before = jev.calls.length
   a.send(new SetInput({ text: "landing page with navbar, hero", anchor }))
-  await a.waitFor(is("DraftUpdated", (m) => m.draft.text.endsWith("hero") && (m.debug?.every((d) => d.source === "jev") ?? false)))
+  await until(() => jev.calls.length > before)
+  await Bun.sleep(100)
   expect(jev.calls.slice(before).map((c) => c.piece)).toEqual(["hero"])
 })
 
@@ -169,8 +173,8 @@ test("a stale Jev answer never overwrites newer text (latest input wins)", async
   a.send(new SetInput({ text: "old idea", anchor }))
   await b.waitFor(is("DraftUpdated", (m) => m.draft.text === "old idea"))
   a.send(new SetInput({ text: "postgres", anchor }))
-  await b.waitFor(is("DraftUpdated", (m) => m.draft.text === "postgres" && m.debug?.[0]?.source === "jev"))
-  await Bun.sleep(200)
+  await b.waitFor(is("DraftUpdated", (m) => m.draft.text === "postgres"))
+  await Bun.sleep(450) // the slow "old idea" answer lands in here, and must not be shown
   const texts = b.received.flatMap((m) => (m._tag === "DraftUpdated" ? [m.draft.text] : []))
   expect(texts.lastIndexOf("old idea")).toBeLessThan(texts.indexOf("postgres"))
 })

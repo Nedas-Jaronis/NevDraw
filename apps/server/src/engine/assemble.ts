@@ -1,4 +1,5 @@
-import { ACCENTS, type EntryEdge, type EntryGraph, type EntryNode, type NodeType, REGISTRY } from "@rtw/shared"
+import { ACCENTS, type EntryEdge, type EntryGraph, type EntryNode, type EntryPatch, type NodeType, REGISTRY } from "@rtw/shared"
+import { editOf } from "./edits.ts"
 import { collectionOf, explicitColor, isModifierOnly, sequenceItems, withoutValues } from "./modifiers.ts"
 import { labelFrom } from "../classify/keywords.ts"
 import type { PieceAnswers } from "./answers.ts"
@@ -108,6 +109,8 @@ const TIER: Partial<Record<NodeType, number>> = {
 }
 const tierOf = (t: NodeType | undefined) => (t ? (TIER[t] ?? (REGISTRY[t].lane === "ui" ? 0 : 2)) : 2)
 
+const WRAPPER_WORDS = /\b(box|wrapper|container|group|block|frame)\b/i
+
 const HANDLE_IN = /@[a-z0-9][a-z0-9-]*/gi
 /** Words that can surround a reference without making it something new: "both the @server". */
 const REF_FILLER = new Set(
@@ -139,6 +142,19 @@ export function assemble(
 ): EntryGraph {
   const nodes: MutableNode[] = []
   const edges: EntryEdge[] = []
+  const patches: EntryPatch[] = []
+  const known = new Set(handles.keys())
+  /** Move existing elements into a container of this entry (never into themselves). */
+  const moveInto = (targets: readonly string[], containerKey: string) => {
+    for (const t of targets) {
+      if (!known.has(t) || t === containerKey) continue
+      const existing = patches.find((p) => p.target === t)
+      if (existing) Object.assign(existing, { parent: containerKey })
+      else patches.push({ target: t, parent: containerKey })
+    }
+  }
+  /** The container this entry made most recently: what "it" means in "it should include …". */
+  const lastContainer = () => [...nodes].reverse().find((n) => REGISTRY[n.type].container)
   const byKey = new Map<string, MutableNode>()
   /** Which node key each piece became (a repeated name reuses the earlier node). */
   const keyOfPiece = new Map<number, string>()
@@ -166,6 +182,30 @@ export function assemble(
       prev = null
       return
     }
+    if (piece.connector === "include") {
+      // "it" is the element this entry just made; it becomes the container if it isn't one.
+      const last = [...nodes].reverse().find((n) => n.parent === null)
+      // A "wrapper / box / container / group" is a plain section, whatever else its name says.
+      if (last && (!REGISTRY[last.type].container || WRAPPER_WORDS.test(last.label))) last.type = "section"
+      let box = last ?? lastContainer()
+      if (!box) {
+        box = { key: `p${piece.index}`, type: "section", label: "Group", parent: null, props: {} }
+        nodes.push(box)
+        byKey.set(box.key, box)
+      }
+      moveInto(piece.include ?? [], box.key)
+      prev = { key: box.key, parent: box.parent, container: true }
+      return
+    }
+    // "make @x red", "rename @x to Checkout": a change to an existing element, not a new one.
+    const change = piece.wrap ? null : editOf(piece.text, known)
+    if (change) {
+      const existing = patches.find((p) => p.target === change.target)
+      if (existing) Object.assign(existing, change)
+      else patches.push(change)
+      prev = { key: change.target, parent: null, container: handles.get(change.target)?.container ?? false }
+      return
+    }
     const a0 = answers[i]
     if (!a0) return
     // "with increments of 15": values for the element before it, not a new element.
@@ -179,7 +219,17 @@ export function assemble(
     }
     // "a table of timers": the collection word is the head noun; the rest is its item type.
     const collection = collectionOf(piece.text)
-    const a = collection ? { ...a0, nodeType: { value: collection.type, confidence: 1 }, isContainer: 0 } : a0
+    // A wrap's container is always a container: a page if it says so, else a section.
+    const wrapType: NodeType | null = piece.wrap
+      ? WRAPPER_WORDS.test(piece.text) || !REGISTRY[a0.nodeType.value].container
+        ? "section"
+        : a0.nodeType.value
+      : null
+    const a = collection
+      ? { ...a0, nodeType: { value: collection.type, confidence: 1 }, isContainer: 0 }
+      : wrapType
+        ? { ...a0, nodeType: { value: wrapType, confidence: 1 }, isContainer: 1 }
+        : a0
     const container = a.isContainer >= YES
     const edge = piece.connector === "edge" ? piece.edge : undefined
 
@@ -248,7 +298,7 @@ export function assemble(
     const node: MutableNode = {
       key,
       type: a.nodeType.value,
-      label: aliasLabel(cleanLabel(piece.text, false), piece.alias),
+      label: piece.aliasIsName && piece.alias ? titleCase(piece.alias) : aliasLabel(cleanLabel(piece.text, false), piece.alias),
       parent,
       props: {
         ...(collection?.of ? { of: collection.of } : {}),
@@ -261,6 +311,7 @@ export function assemble(
     byKey.set(key, node)
     keyOfPiece.set(piece.index, key)
     if (parent === null) byLabel.set(node.label.toLowerCase(), key)
+    if (piece.wrap) moveInto(piece.wrap === "recent" ? recent : piece.wrap, key)
     if (edge) addEdge(keyOfPiece.get(edge.from), key, edge.kind, edge.label)
 
     if (layout) {
@@ -272,5 +323,5 @@ export function assemble(
     prev = { key, parent, container }
   })
 
-  return { nodes, edges, suggestions: [] }
+  return { nodes, edges, suggestions: [], patches }
 }

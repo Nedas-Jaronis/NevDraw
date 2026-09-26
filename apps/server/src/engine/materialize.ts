@@ -1,4 +1,4 @@
-import type { BoardEdge, BoardNode, EntryGraph, Point, User } from "@rtw/shared"
+import type { BoardEdge, BoardNode, EntryGraph, NodePatch, Point, User } from "@rtw/shared"
 import { REGISTRY } from "@rtw/shared"
 
 export const TOP_LEVEL_GAP = 96
@@ -14,6 +14,7 @@ export type DraftMemory = {
   readonly keyToId: ReadonlyMap<string, string>
   readonly nodes: ReadonlyArray<BoardNode>
   readonly edges: ReadonlyArray<BoardEdge>
+  readonly patches: ReadonlyArray<NodePatch>
 }
 
 export const widthOf = (type: BoardNode["type"]) => (REGISTRY[type].container ? CONTAINER_WIDTH : DEFAULT_WIDTH)
@@ -50,6 +51,9 @@ export function validateHandles(graph: EntryGraph, known: ReadonlySet<string>): 
     nodes: graph.nodes.map((n) => (ok(n.parent) ? n : { ...n, parent: null })),
     edges: graph.edges.filter((e) => ok(e.from) && ok(e.to)),
     suggestions: graph.suggestions.filter((s) => known.has(s.handle)),
+    patches: graph.patches
+      .filter((p) => known.has(p.target))
+      .map((p) => (p.parent === undefined || ok(p.parent) ? p : { ...p, parent: undefined })),
   }
 }
 
@@ -152,5 +156,26 @@ export function materialize(input: {
       authorColor: user.color,
     })
   }
-  return { keyToId, nodes, edges }
+  // Changes to existing elements. A move must not put an element inside itself or its own children.
+  const parentOf = (id: string): string | null => placedById.get(id)?.parent ?? board.byId.get(id)?.parent ?? null
+  const isInside = (id: string, ancestor: string) => {
+    for (let cur: string | null = id, hops = 0; cur && hops < 64; cur = parentOf(cur), hops++) if (cur === ancestor) return true
+    return false
+  }
+  const patches: NodePatch[] = []
+  for (const p of graph.patches) {
+    const target = board.byHandle.get(p.target)
+    if (!target) continue
+    const parent = p.parent !== undefined ? keyToId.get(p.parent) : undefined
+    const validParent = parent !== undefined && parent !== target.id && !isInside(parent, target.id) ? parent : undefined
+    const patch: NodePatch = {
+      id: target.id,
+      ...(p.label ? { label: p.label } : {}),
+      ...(p.type ? { type: p.type } : {}),
+      ...(p.color && /^#[0-9a-f]{6}$/i.test(p.color) ? { color: p.color.toLowerCase() } : {}),
+      ...(validParent ? { parent: validParent } : {}),
+    }
+    if (Object.keys(patch).length > 1) patches.push(patch)
+  }
+  return { keyToId, nodes, edges, patches }
 }

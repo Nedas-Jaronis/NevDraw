@@ -647,7 +647,7 @@ function Sketch({ node }: { node: BoardNode }) {
       const zone = Object.entries(ZONES).find(([k]) => new RegExp(`\\b${k}\\b`).test(l))
       return (
         <div className="flex items-end justify-between">
-          <div className="text-2xl font-semibold tabular-nums tracking-tight">
+          <div className="text-2xl font-semibold tabular-nums tracking-tight text-[var(--a)]">
             <LiveClock {...(zone ? { zone: zone[1] } : {})} />
           </div>
           <span className="pb-1 text-[10px] text-[var(--muted)]">{zone ? zone[0].toUpperCase() : "Local"}</span>

@@ -100,8 +100,19 @@ function Frame(props: { node: BoardNode; draft: boolean; root?: boolean; selecte
       }`}
       style={{
         // An element's accent (from the prompt) colors it and everything inside it.
-        ...(node.props.color ? ({ "--a": node.props.color, "--on-a": onColor(node.props.color) } as React.CSSProperties) : {}),
-        border: draft ? `1.5px dashed ${node.authorColor}` : "1px solid var(--hairline)",
+        ...(node.props.color
+          ? ({
+              "--a": node.props.color,
+              "--on-a": onColor(node.props.color),
+              // A colored element is visibly that color: tinted surface, colored hairline.
+              background: `color-mix(in srgb, ${node.props.color} 9%, ${root ? "var(--panel)" : "var(--surface)"})`,
+            } as React.CSSProperties)
+          : {}),
+        border: draft
+          ? `1.5px dashed ${node.authorColor}`
+          : node.props.color
+            ? `1px solid color-mix(in srgb, ${node.props.color} 55%, transparent)`
+            : "1px solid var(--hairline)",
         ...(lit ? { boxShadow: `0 0 0 3px color-mix(in srgb, ${hl.color} 35%, transparent)` } : {}),
       }}
     >

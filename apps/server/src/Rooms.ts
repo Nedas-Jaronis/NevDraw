@@ -251,6 +251,8 @@ export const RoomsLive = Layer.effect(
         // The LLM cleanup pass: its pending fiber, and its result for one exact text.
         let llmFiber: Fiber.RuntimeFiber<void> | null = null
         let llmResult: { text: string; graph: EntryGraph } | null = null
+        /** The last render parsed an explicit command (edit / wrap / include): no LLM rewrite. */
+        let explicitCommand = false
         /** The instant (Jev/keyword) graph last shown, so the LLM can keep its keys. */
         let lastGraph: EntryGraph | null = null
         /** Top-level handles of this person's recent commits, newest last: what "them" means. */
@@ -262,6 +264,9 @@ export const RoomsLive = Layer.effect(
         }
         /** Link suggestions last sent to this typist (only they see them). */
         let lastSuggestions = "[]"
+        /** What this typist's draft looked like when last broadcast. */
+        let lastDraftSignature = ""
+        const jevDebounce = envNumber("JEV_DEBOUNCE_MS") ?? 120
 
         const sendSuggestions = (list: readonly Suggestion[]) =>
           Effect.suspend(() => {
@@ -315,9 +320,11 @@ export const RoomsLive = Layer.effect(
             })
             pieceMemory = r.memory
             lastGraph = r.graph
-            // The LLM's reading of this exact text wins over the instant one.
-            const graph = llmResult?.text === text ? keepComputed(llmResult.graph, r.graph) : r.graph
-            if (graph.nodes.length === 0 && graph.edges.length === 0) return Effect.as(clearDraft, [])
+            // Explicit commands on @handles (edits, wrap, include) are parsed by code and stay
+            // deterministic; otherwise the LLM's reading of this exact text wins over the instant one.
+            explicitCommand = r.graph.patches.length > 0
+            const graph = llmResult?.text === text && !explicitCommand ? keepComputed(llmResult.graph, r.graph) : r.graph
+            if (graph.nodes.length === 0 && graph.edges.length === 0 && graph.patches.length === 0) return Effect.as(clearDraft, [])
             const prev = room.memory.get(user.id)
             const memory = placeNewRoots(
               room,
@@ -325,14 +332,20 @@ export const RoomsLive = Layer.effect(
               prev,
               materialize({ graph, prev, anchor, user: me, newId: () => crypto.randomUUID(), board: boardView(room) }),
             )
-            const draft: Draft = { userId: user.id, text, nodes: memory.nodes, edges: memory.edges }
+            const draft: Draft = { userId: user.id, text, nodes: memory.nodes, edges: memory.edges, patches: memory.patches }
             room.memory.set(user.id, memory)
-            room.drafts.set(user.id, draft)
             const known = new Set(room.handles.keys())
             const named = [...room.nodes.values()].flatMap((n) => (n.handle ? [{ handle: n.handle, label: n.label }] : []))
             const suggestions = mergeSuggestions(known, graph.suggestions, suggestLinks(r.pieces, named)).filter(
               (x) => !text.toLowerCase().includes(x.handle),
             )
+            // Only send what changed: identical drafts (a Jev answer that agrees, a no-op keystroke) aren't re-sent.
+            // What people see: the text (typing indicator) and the elements. Which classifier answered doesn't count.
+            const signature = JSON.stringify([text, draft.nodes, draft.edges, draft.patches])
+            const unchanged = signature === lastDraftSignature
+            lastDraftSignature = signature
+            room.drafts.set(user.id, draft)
+            if (unchanged) return Effect.as(sendSuggestions(suggestions), r.missing)
             return broadcast(room, new DraftUpdated({ draft, debug: r.debug })).pipe(
               Effect.zipRight(relayout(room)),
               Effect.zipRight(sendSuggestions(suggestions)),
@@ -361,9 +374,17 @@ export const RoomsLive = Layer.effect(
               const stillLatest = (then: Effect.Effect<unknown>) => Effect.suspend(() => (latest?.text === text ? then : Effect.void))
               if (missing.length > 0 && classifier.enabled) {
                 // Jev answers arrive async: re-render with them only if this is still the latest input.
-                inflight = yield* Effect.fork(Effect.asVoid(classifier.fetch(missing).pipe(Effect.zipRight(stillLatest(render(text, anchor))))))
+                // Ask Jev after a short pause (like Shapeshift's 120 ms), not on every character.
+                inflight = yield* Effect.fork(
+                  Effect.asVoid(
+                    Effect.sleep(jevDebounce).pipe(
+                      Effect.zipRight(classifier.fetch(missing)),
+                      Effect.zipRight(stillLatest(render(text, anchor))),
+                    ),
+                  ),
+                )
               }
-              if (refiner.enabled && llmResult === null) {
+              if (refiner.enabled && llmResult === null && !explicitCommand) {
                 // After a longer pause, the LLM cleans up what Jev can't (pronouns, chains, phrasing).
                 llmFiber = yield* Effect.fork(
                   Effect.sleep(llmDebounce).pipe(
@@ -387,7 +408,7 @@ export const RoomsLive = Layer.effect(
             yield* cancelInflight
             // Enter commits the LLM's version when it can arrive quickly; otherwise the instant one.
             const typed = latest
-            if (typed && refiner.enabled && llmResult?.text !== typed.text) {
+            if (typed && refiner.enabled && llmResult?.text !== typed.text && !explicitCommand) {
               const graph = yield* refine(typed.text).pipe(
                 Effect.timeout(commitWait),
                 Effect.catchAll(() => Effect.succeed(null)),
@@ -404,7 +425,8 @@ export const RoomsLive = Layer.effect(
             yield* sendSuggestions([])
             const draft = room.drafts.get(user.id)
             // An entry can be only arrows ("connect them together").
-            if (!draft || (draft.nodes.length === 0 && draft.edges.length === 0)) return
+            if (!draft || (draft.nodes.length === 0 && draft.edges.length === 0 && draft.patches.length === 0)) return
+            lastDraftSignature = ""
             // Elements this draft pushed aside stay where they were pushed.
             const committedNow = [...room.nodes.values()]
             const pushed = pushAside({
@@ -422,9 +444,28 @@ export const RoomsLive = Layer.effect(
             const committed = withHandles(room, draft.nodes)
             const tops = committed.filter((n) => n.parent === null && n.handle).map((n) => n.handle!)
             if (tops.length) recentCommits.push(tops)
-            yield* store.upsert(roomId, [...moved, ...committed], draft.edges)
+            // Changes to existing elements: recolor, rename, retype, move into a container.
+            const nextOrder = (parent: string | null) =>
+              [...room.nodes.values()].filter((n) => n.parent === parent).reduce((m, n) => Math.max(m, n.order + 1), 0)
+            const patched: BoardNode[] = []
+            for (const p of draft.patches) {
+              const n = room.nodes.get(p.id)
+              if (!n) continue
+              const moving = p.parent !== undefined && p.parent !== n.parent && room.nodes.has(p.parent)
+              const next: BoardNode = {
+                ...n,
+                ...(p.label ? { label: p.label } : {}),
+                ...(p.type ? { type: p.type } : {}),
+                props: { ...n.props, ...(p.color ? { color: p.color } : {}) },
+                ...(moving ? { parent: p.parent!, order: nextOrder(p.parent!) } : {}),
+              }
+              room.nodes.set(n.id, next)
+              patched.push(next)
+            }
+            yield* store.upsert(roomId, [...moved, ...committed, ...patched], draft.edges)
             if (moved.length) yield* broadcast(room, new NodesUpdated({ nodes: moved }))
             yield* broadcast(room, new NodesCommitted({ nodes: committed, edges: draft.edges }))
+            if (patched.length) yield* broadcast(room, new NodesUpdated({ nodes: patched }))
             yield* broadcast(room, new DraftCleared({ userId: user.id }))
             yield* relayout(room)
           }),

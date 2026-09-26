@@ -43,8 +43,12 @@ export function pieceStates(pieces: readonly Piece[], handles: readonly string[]
  */
 export function keepComputed(llm: EntryGraph, instant: EntryGraph): EntryGraph {
   const computed = new Map(instant.nodes.map((n) => [n.key, n.props]))
+  // Code-read changes (named colors, explicit renames/moves) win for the same element.
+  const patches = new Map(llm.patches.map((p) => [p.target, p]))
+  for (const p of instant.patches) patches.set(p.target, { ...patches.get(p.target), ...p })
   return {
     ...llm,
+    patches: [...patches.values()],
     nodes: llm.nodes.map((n) => {
       const c = computed.get(n.key)
       if (!c) return n

@@ -19,6 +19,8 @@ export type Connector =
   | "edge"
   /** "connect them together": arrows between the elements this person just added. */
   | "connect"
+  /** "it should include @a @b": moves into the entry's container (see `include`). */
+  | "include"
 
 export type Piece = {
   index: number
@@ -30,15 +32,22 @@ export type Piece = {
   into?: string
   /** "a server and a database, being server and sql": what this element is called (here "sql"). */
   alias?: string
+  /** The alias came from "called / named / titled": it's the element's name, used as-is. */
+  aliasIsName?: boolean
   /** "a checklist: milk, eggs and bread": the element's items. */
   items?: string[]
+  /** "wrap @a and @b into one box": this piece is the new container; these move into it ("recent" = what "them" means). */
+  wrap?: string[] | "recent"
+  /** "it should include @a @b": move these into the container this entry just made. */
+  include?: string[]
 }
 
 /**
  * A clarifying clause that names the elements just listed, in order:
  * "…, being server and sql", "namely …", "i.e. …", "called …", "named …".
  */
-const ALIAS = /(?:\s*,\s*|\s+)(?:being|namely|specifically|i\.?e\.?,?|which are|which is|that is|those being|these being|called|named)\s+(.+)$/i
+const ALIAS = /(?:\s*,\s*|\s+)(being|namely|specifically|i\.?e\.?,?|which are|which is|that is|those being|these being|called|named|titled)\s+(.+)$/i
+const NAMING = /^(called|named|titled)$/i
 
 function aliasItems(list: string): string[] {
   return list
@@ -81,8 +90,24 @@ const CHILD_JOINER = /^\s*(with|including|containing|featuring|that has|which ha
  * Conversation around the actual content: "can you create …", "please add …",
  * "let's make …", "I want …". Stripped from the start of every sentence.
  */
-const LEAD_IN =
-  /^\s*(?:(?:hey|ok|okay|so|now|then|also|and)[,\s]+)*(?:(?:can|could|would|will) you\s+(?:please\s+)?|please\s+|(?:let'?s|lets)\s+|i(?:'d| would)? (?:want|need|like)(?: you)?(?: to)?\s+|we (?:want|need|should)(?: to)?\s+)?(?:go ahead and\s+)?(?:(?:create|make|add|draw|build|design|sketch|show|put|give me|generate|include|set up)\s+)?/i
+const CONVERSATION =
+  /^\s*(?:(?:hey|ok|okay|so|now|then|also|and)[,\s]+)*(?:(?:can|could|would|will) you\s+(?:please\s+)?|please\s+|(?:let'?s|lets)\s+|i(?:'d| would)? (?:want|need|like)(?: you)?(?: to)?\s+|we (?:want|need|should)(?: to)?\s+)?(?:go ahead and\s+)?/i
+const CREATE_VERB = /^(?:(?:create|make|add|draw|build|design|sketch|show|put|give me|generate|include|set up)\s+)/i
+
+/** "make @x red", "set @x to blue": the verb is part of an edit, so it stays. */
+const EDIT_START = /^(?:make|turn|change|set|colou?r|paint|recolou?r|rename|call|label|title|update|switch|convert)\b.*@[a-z0-9]/i
+
+const HANDLES = /@[a-z0-9][a-z0-9-]*/gi
+const handlesIn = (s: string) => [...s.matchAll(HANDLES)].map((m) => m[0].toLowerCase())
+const THEM = /\b(them|these|those|all of them|everything|both|it all|the (?:ones|elements|modals|boxes|sections) (?:above|i made|i suggested))\b/i
+
+/** "wrap/group/put @a, @b and @c into one box", "group them into a section called Hero". */
+const WRAP =
+  /^(?:wrap|group|put|combine|nest|move|place|bundle|merge|organi[sz]e)\s+(.+?)\s+(?:all\s+)?(?:together\s+)?(?:into|in|inside|within|under)\s+(.+)$/i
+const WRAP_BARE = /^(?:wrap|group|bundle|combine)\s+(.+?)(?:\s+together)?$/i
+/** "it should include @a @b", "the box contains @a and @b". */
+const INCLUDE =
+  /^(?:it|this|that|the (?:box|wrapper|container|section|group|page|card|modal))\s+(?:should|will|must|can|needs to|is going to)?\s*(?:include|contain|hold|wrap|have|group)s?\s+(.+)$/i
 
 /** Words about the drawing itself, not elements in it: "a flowchart with …", "a diagram of …". */
 const META =
@@ -105,8 +130,24 @@ const PAIR_LINKED =
 const META_PREFIX =
   /^(?:a|an|the)?\s*(?:simple\s+|quick\s+|basic\s+)?(?:flow ?chart|diagram|architecture diagram|system diagram|wireframe|mock ?-?up|sketch)s?\s+(?:of|for|showing|that shows|where|with)\s+/i
 
-export function normalizeSentence(sentence: string): { kind: "text"; text: string } | { kind: "connect-recent" } {
-  const t = sentence.replace(LEAD_IN, "").replace(META_PREFIX, "").trim()
+export type Sentence =
+  | { kind: "text"; text: string }
+  | { kind: "connect-recent" }
+  | { kind: "wrap"; container: string; targets: string[] | "recent" }
+  | { kind: "include"; targets: string[] }
+
+export function normalizeSentence(sentence: string): Sentence {
+  const talk = sentence.replace(CONVERSATION, "").trim()
+  // Structural commands first: they use verbs ("put", "include") that creation would strip.
+  const wrap = WRAP.exec(talk) ?? WRAP_BARE.exec(talk)
+  if (wrap) {
+    const handles = handlesIn(wrap[1]!)
+    const targets = handles.length ? handles : THEM.test(wrap[1]!) ? "recent" : null
+    if (targets) return { kind: "wrap", container: wrap[2] ?? "a group", targets }
+  }
+  const include = INCLUDE.exec(talk)
+  if (include && handlesIn(include[1]!).length) return { kind: "include", targets: handlesIn(include[1]!) }
+  const t = (EDIT_START.test(talk) ? talk : talk.replace(CREATE_VERB, "")).replace(META_PREFIX, "").trim()
   if (CONNECT_RECENT.test(t)) return { kind: "connect-recent" }
   const pair = CONNECT_PAIR.exec(t) ?? PAIR_LINKED.exec(t)
   if (pair) return { kind: "text", text: `${pair[1]} connects to ${pair[2]}` }
@@ -131,13 +172,31 @@ export function split(text: string): Piece[] {
       pieces.push({ index: pieces.length, text: "", connector: "connect" })
       continue
     }
+    if (normalized.kind === "wrap") {
+      // The container is a new element; the targets move into it. "a page called Home" names it.
+      const named = ALIAS.exec(normalized.container)
+      const text = (named ? normalized.container.slice(0, named.index) : normalized.container).trim()
+      pieces.push({
+        index: pieces.length,
+        text,
+        connector: "start",
+        wrap: normalized.targets,
+        ...(named ? { alias: aliasItems(named[2]!)[0] ?? "", aliasIsName: NAMING.test(named[1]!) } : {}),
+      })
+      continue
+    }
+    if (normalized.kind === "include") {
+      pieces.push({ index: pieces.length, text: "", connector: "include", include: normalized.targets })
+      continue
+    }
     // Peel off "…, being X and Y" before splitting; it names this sentence's elements.
     // "a checklist: milk, eggs and bread": the list belongs to the element before the colon.
     const colon = colonList(normalized.text)
     const base = colon ? colon.head : normalized.text
     const alias = ALIAS.exec(base)
     const sentence = alias ? base.slice(0, alias.index) : base
-    const aliases = alias ? aliasItems(alias[1]!) : []
+    const aliases = alias ? aliasItems(alias[2]!) : []
+    const aliasIsName = alias ? NAMING.test(alias[1]!) : false
     const firstOfSentence = pieces.length
     const parts = sentence.split(JOINER)
     let connector: Connector = "start"
@@ -199,7 +258,7 @@ export function split(text: string): Piece[] {
     // Name this sentence's elements in order.
     aliases.forEach((a, k) => {
       const p = pieces[firstOfSentence + k]
-      if (p) pieces[firstOfSentence + k] = { ...p, alias: a }
+      if (p) pieces[firstOfSentence + k] = { ...p, alias: a, ...(aliasIsName ? { aliasIsName } : {}) }
     })
   }
   return pieces
