@@ -86,9 +86,9 @@ const llms = [
     : { name: "gemini", skip: "no GEMINI_API_KEY in .env" },
   looksLikeKey(env("GPTOSS_API_KEY"))
     ? openAiCompatible({
-        baseUrl: env("GPTOSS_BASE_URL") ?? "https://openrouter.ai/api/v1",
+        baseUrl: env("GPTOSS_BASE_URL") ?? "https://api.cerebras.ai/v1",
         apiKey: env("GPTOSS_API_KEY")!,
-        model: env("GPTOSS_MODEL") ?? "openai/gpt-oss-120b",
+        model: env("GPTOSS_MODEL") ?? "gpt-oss-120b",
       })
     : { name: "gpt-oss", skip: "no GPTOSS_API_KEY in .env" },
 ]
