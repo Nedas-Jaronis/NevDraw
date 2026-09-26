@@ -7,9 +7,10 @@ import { Effect, Layer } from "effect"
 import { Jev, JevFromEnv, looksLikeKey, type PieceState } from "../src/classify/Jev.ts"
 import { pieceStates } from "../src/engine/index.ts"
 import { split } from "../src/engine/split.ts"
-import { gemini, openAiCompatible } from "../src/refine/Refiner.ts"
+import { env, envNumber } from "../src/env.ts"
+import { DEFAULT_GEMINI_MODEL, gemini, openAiCompatible } from "../src/refine/Refiner.ts"
 
-const RUNS = Number(process.env.PROBE_RUNS) || 5
+const RUNS = envNumber("PROBE_RUNS") ?? 5
 const ENTRY = "landing page with navbar, hero, three pricing cards in a row and signup form. signup form posts to api server which writes to postgres"
 
 const pct = (xs: number[], p: number) => {
@@ -28,7 +29,7 @@ const result: { jevBatchP95?: number; llmP50?: number } = {}
 
 // ── Jev ────────────────────────────────────────────────────────────────────
 console.log("\nJev (TypeSafe)")
-if (!looksLikeKey(process.env.TYPESAFE_API_KEY)) {
+if (!looksLikeKey(env("TYPESAFE_API_KEY"))) {
   console.log("  skipped: no TYPESAFE_API_KEY in .env")
 } else {
   const pieces = split(ENTRY)
@@ -37,23 +38,27 @@ if (!looksLikeKey(process.env.TYPESAFE_API_KEY)) {
   const perCall: number[] = []
   const perBatch: number[] = []
   let failures = 0
+  let batchFailed = false
   const program = Effect.gen(function* () {
     const jev = yield* Jev
     for (let r = 0; r < RUNS; r++) {
       const t = performance.now()
+      batchFailed = false
       const answers = yield* Effect.forEach(
         states,
         (s: PieceState) =>
           Effect.gen(function* () {
             const t0 = performance.now()
             const a = yield* Effect.either(jev.answer(s))
-            perCall.push(performance.now() - t0)
-            if (a._tag === "Left") failures++
+            if (a._tag === "Left") {
+              failures++
+              batchFailed = true
+            } else perCall.push(performance.now() - t0)
             return a
           }),
         { concurrency: "unbounded" },
       )
-      perBatch.push(performance.now() - t)
+      if (!batchFailed) perBatch.push(performance.now() - t)
       if (r === 0) {
         for (const [i, a] of answers.entries()) {
           const shown = a._tag === "Right" ? `${a.right.nodeType.value} (${a.right.nodeType.confidence.toFixed(2)})` : `error: ${a.left.reason}`
@@ -63,10 +68,10 @@ if (!looksLikeKey(process.env.TYPESAFE_API_KEY)) {
     }
   })
   await Effect.runPromise(Effect.provide(program, JevFromEnv as Layer.Layer<Jev>))
-  line("one piece", perCall)
-  line(`whole entry (${pieces.length} in parallel)`, perBatch)
-  if (failures) console.log(`  ${failures} failed calls`)
-  result.jevBatchP95 = pct(perBatch, 95)
+  if (perCall.length) line("one piece (successful)", perCall)
+  if (perBatch.length) line(`whole entry (${pieces.length} in parallel)`, perBatch)
+  if (failures) console.log(`  ${failures} of ${states.length * RUNS} calls failed`)
+  if (perBatch.length) result.jevBatchP95 = pct(perBatch, 95)
 }
 
 // ── LLMs ───────────────────────────────────────────────────────────────────
@@ -76,14 +81,14 @@ const llmInput = {
   draft: [],
 }
 const llms = [
-  looksLikeKey(process.env.GEMINI_API_KEY)
-    ? gemini(process.env.GEMINI_API_KEY, process.env.GEMINI_MODEL || "gemini-2.5-flash")
+  looksLikeKey(env("GEMINI_API_KEY"))
+    ? gemini(env("GEMINI_API_KEY")!, env("GEMINI_MODEL") ?? DEFAULT_GEMINI_MODEL)
     : { name: "gemini", skip: "no GEMINI_API_KEY in .env" },
-  looksLikeKey(process.env.GPTOSS_API_KEY)
+  looksLikeKey(env("GPTOSS_API_KEY"))
     ? openAiCompatible({
-        baseUrl: process.env.GPTOSS_BASE_URL || "https://api.groq.com/openai/v1",
-        apiKey: process.env.GPTOSS_API_KEY,
-        model: process.env.GPTOSS_MODEL || "openai/gpt-oss-120b",
+        baseUrl: env("GPTOSS_BASE_URL") ?? "https://api.groq.com/openai/v1",
+        apiKey: env("GPTOSS_API_KEY")!,
+        model: env("GPTOSS_MODEL") ?? "openai/gpt-oss-120b",
       })
     : { name: "gpt-oss", skip: "no GPTOSS_API_KEY in .env" },
 ]
@@ -97,7 +102,7 @@ for (const impl of llms) {
   const xs: number[] = []
   for (let r = 0; r < Math.min(RUNS, 3); r++) {
     const { ms, value } = await time(() => Effect.runPromise(Effect.either(impl.refine(llmInput))))
-    xs.push(ms)
+    if (value._tag === "Right") xs.push(ms)
     if (r === 0) {
       if (value._tag === "Right") {
         const g = value.right
@@ -106,8 +111,10 @@ for (const impl of llms) {
       } else console.log(`    error: ${value.left.reason}`)
     }
   }
-  line("refine", xs)
-  llmP50s.push(pct(xs, 50))
+  if (xs.length) {
+    line("refine (successful)", xs)
+    llmP50s.push(pct(xs, 50))
+  } else console.log("  every call failed")
 }
 if (llmP50s.length) result.llmP50 = Math.min(...llmP50s)
 

@@ -24,6 +24,7 @@ import {
 import { Context, Deferred, Effect, Fiber, Layer, Queue } from "effect"
 import { BoardStore } from "./BoardStore.ts"
 import { Classifier } from "./classify/Classifier.ts"
+import { envNumber } from "./env.ts"
 import type { EntryGraph } from "@rtw/shared"
 import type { BoardSummaryItem } from "./refine/prompt.ts"
 import { Refiner } from "./refine/Refiner.ts"
@@ -86,8 +87,8 @@ export const RoomsLive = Layer.effect(
     const store = yield* BoardStore
     const classifier = yield* Classifier
     const refiner = yield* Refiner
-    const llmDebounce = Number(process.env.LLM_DEBOUNCE_MS) || 1500
-    const commitWait = Number(process.env.LLM_COMMIT_WAIT_MS) || 1200
+    const llmDebounce = envNumber("LLM_DEBOUNCE_MS") ?? 1500
+    const commitWait = envNumber("LLM_COMMIT_WAIT_MS") ?? 1200
     const rooms = new Map<string, Room>()
 
     const broadcast = (room: Room, msg: ServerMessage, exceptId?: string) =>

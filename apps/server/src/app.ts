@@ -6,6 +6,7 @@ import { BoardStore, sqliteStore } from "./BoardStore.ts"
 import { ClassifierLive } from "./classify/Classifier.ts"
 import { type Jev, JevFromEnv } from "./classify/Jev.ts"
 import { type Refiner, RefinerFromEnv } from "./refine/Refiner.ts"
+import { env } from "./env.ts"
 import { RoomsLive } from "./Rooms.ts"
 import { roomSocket } from "./socket.ts"
 import { staticFiles } from "./static.ts"
@@ -29,6 +30,6 @@ export const makeApp = (options: {
     Layer.provide(RoomsLive),
     Layer.provide(ClassifierLive.pipe(Layer.provide(options.jev ?? JevFromEnv))),
     Layer.provide(options.refiner ?? RefinerFromEnv),
-    Layer.provide(options.store ?? sqliteStore(process.env.DB_PATH ?? DEFAULT_DB_PATH)),
+    Layer.provide(options.store ?? sqliteStore(env("DB_PATH") ?? DEFAULT_DB_PATH)),
     Layer.provideMerge(BunHttpServer.layer({ port: options.port })),
   )

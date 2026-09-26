@@ -4,6 +4,7 @@ import { FetchHttpClient } from "@effect/platform"
 import type { EntryGraph } from "@rtw/shared"
 import { Context, Data, Duration, Effect, Layer, Redacted, Schema } from "effect"
 import { looksLikeKey } from "../classify/Jev.ts"
+import { env, envNumber } from "../env.ts"
 import { fromLlm, LlmGraph, type RefineInput, SYSTEM, userPrompt } from "./prompt.ts"
 
 export class RefineError extends Data.TaggedError("RefineError")<{ provider: string; reason: string }> {}
@@ -26,7 +27,10 @@ export const RefinerDisabled = Layer.succeed(Refiner, {
   refine: () => Effect.fail(new RefineError({ provider: "off", reason: "disabled" })),
 })
 
-const TIMEOUT = () => Duration.millis(Number(process.env.LLM_TIMEOUT_MS) || 8000)
+const TIMEOUT = () => Duration.millis(envNumber("LLM_TIMEOUT_MS") ?? 8000)
+
+/** gemini-2.5-flash is closed to new API users; this is the current default. */
+export const DEFAULT_GEMINI_MODEL = "gemini-3.8-flash"
 
 /** Gemini through @effect/ai-google, with the schema enforced by Gemini itself. */
 export function gemini(apiKey: string, model: string, apiUrl?: string): Impl {
@@ -118,16 +122,17 @@ export function withFallback(primary: Impl, fallback: Impl | null): Impl {
  * No keys → the pass is off and drafts come from Jev / keywords only.
  */
 export const RefinerFromEnv = Layer.suspend(() => {
-  const env = process.env
-  const g = looksLikeKey(env.GEMINI_API_KEY) ? gemini(env.GEMINI_API_KEY, env.GEMINI_MODEL || "gemini-2.5-flash") : null
-  const o = looksLikeKey(env.GPTOSS_API_KEY)
+  const geminiKey = env("GEMINI_API_KEY")
+  const gptossKey = env("GPTOSS_API_KEY")
+  const g = looksLikeKey(geminiKey) ? gemini(geminiKey, env("GEMINI_MODEL") ?? DEFAULT_GEMINI_MODEL) : null
+  const o = looksLikeKey(gptossKey)
     ? openAiCompatible({
-        baseUrl: env.GPTOSS_BASE_URL || "https://api.groq.com/openai/v1",
-        apiKey: env.GPTOSS_API_KEY,
-        model: env.GPTOSS_MODEL || "openai/gpt-oss-120b",
+        baseUrl: env("GPTOSS_BASE_URL") ?? "https://api.groq.com/openai/v1",
+        apiKey: gptossKey,
+        model: env("GPTOSS_MODEL") ?? "openai/gpt-oss-120b",
       })
     : null
-  const [primary, fallback] = env.LLM_PROVIDER === "gptoss" ? [o, g] : [g, o]
+  const [primary, fallback] = env("LLM_PROVIDER") === "gptoss" ? [o, g] : [g, o]
   const impl = primary ? withFallback(primary, fallback) : fallback
   if (!impl) {
     console.info("[llm] off: no GEMINI_API_KEY or GPTOSS_API_KEY; the cleanup pass is disabled")
