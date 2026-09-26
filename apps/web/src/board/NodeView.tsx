@@ -68,7 +68,7 @@ export function RootView(props: {
 }
 
 /** A nested element: laid out by its parent's CSS flow, animated on reflow. */
-function ChildView({ item, tree }: { item: Item; tree: Tree }) {
+function ChildView({ item, tree, compact }: { item: Item; tree: Tree; compact: boolean }) {
   return (
     <motion.div
       layout
@@ -79,7 +79,7 @@ function ChildView({ item, tree }: { item: Item; tree: Tree }) {
       className="min-w-0"
     >
       <Frame node={item.node} draft={item.draft}>
-        <Body item={item} tree={tree} />
+        <Body item={item} tree={tree} compact={compact} />
       </Frame>
     </motion.div>
   )
@@ -113,19 +113,20 @@ const LAYOUT_CLASS = {
   grid: "grid grid-cols-2 gap-2",
 } as const
 
-function Body({ item, tree }: { item: Item; tree: Tree }) {
+function Body({ item, tree, compact = false }: { item: Item; tree: Tree; compact?: boolean }) {
   const { node, draft } = item
   const showAuthor = !draft && node.parent === null
-  if (!isContainer(node)) return <Wire node={node} showAuthor={showAuthor} />
+  if (!isContainer(node)) return <Wire node={node} showAuthor={showAuthor} compact={compact} />
+  const layout = node.props.layout ?? "stack"
 
   const kids = tree.children.get(node.id) ?? []
   return (
     <div>
-      <Title node={node} showAuthor={showAuthor} />
-      <div className={`mt-2.5 ${LAYOUT_CLASS[node.props.layout ?? "stack"]}`}>
+      <Title node={node} showAuthor={showAuthor} compact={compact} />
+      <div className={`mt-2.5 ${LAYOUT_CLASS[layout]}`}>
         <AnimatePresence initial={false}>
           {kids.map((k) => (
-            <ChildView key={k.node.id} item={k} tree={tree} />
+            <ChildView key={k.node.id} item={k} tree={tree} compact={layout !== "stack"} />
           ))}
         </AnimatePresence>
         {kids.length === 0 && <div className="h-16 rounded-lg border border-dashed border-[var(--hairline)]" />}
@@ -134,11 +135,16 @@ function Body({ item, tree }: { item: Item; tree: Tree }) {
   )
 }
 
-/** The type tag only when the label doesn't already say it ("Navbar" doesn't need "NAVBAR"). */
-const typeTag = (n: BoardNode) => (n.label.toLowerCase().includes(n.type.replace("-", " ")) ? null : n.type)
+/**
+ * The type tag only when it adds something: not when the label already says
+ * it ("Navbar", "25 min stop watch"), not for the catch-all, and not in
+ * narrow row/grid cells.
+ */
+const squash = (s: string) => s.toLowerCase().replace(/[^a-z]/g, "")
+const typeTag = (n: BoardNode) => (n.type === "box" || squash(n.label).includes(squash(n.type)) ? null : n.type.replace("-", " "))
 
-export function Title({ node, showAuthor }: { node: BoardNode; showAuthor: boolean }) {
-  const tag = typeTag(node)
+export function Title({ node, showAuthor, compact }: { node: BoardNode; showAuthor: boolean; compact?: boolean }) {
+  const tag = compact ? null : typeTag(node)
   return (
     <div className="frame-title flex items-center gap-2">
       <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{node.label}</span>

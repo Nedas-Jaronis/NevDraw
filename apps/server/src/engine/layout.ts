@@ -24,6 +24,21 @@ const SKETCH_H: Partial<Record<NodeType, number>> = {
   list: 52,
   text: 28,
   box: 28,
+  timer: 92,
+  stopwatch: 92,
+  chart: 76,
+  calendar: 112,
+  map: 84,
+  video: 96,
+  chat: 84,
+  tabs: 36,
+  select: 32,
+  toggle: 28,
+  slider: 28,
+  progress: 24,
+  avatar: 36,
+  search: 32,
+  stat: 52,
 }
 
 const TITLE = 22
