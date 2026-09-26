@@ -14,9 +14,10 @@ import {
   UserLeft,
   Welcome,
 } from "@rtw/shared"
-import { Context, Deferred, Effect, Layer, Queue } from "effect"
+import { Context, Deferred, Effect, Fiber, Layer, Queue } from "effect"
 import { BoardStore } from "./BoardStore.ts"
-import { type DraftMemory, interpretOffline, materialize } from "./engine/index.ts"
+import { Classifier } from "./classify/Classifier.ts"
+import { type DraftMemory, interpret, materialize, type PieceMemory } from "./engine/index.ts"
 
 /** One connected socket in a room. Messages are queued; the socket's own fiber drains them. */
 type Client = {
@@ -66,6 +67,7 @@ export const RoomsLive = Layer.effect(
   Rooms,
   Effect.gen(function* () {
     const store = yield* BoardStore
+    const classifier = yield* Classifier
     const rooms = new Map<string, Room>()
 
     const broadcast = (room: Room, msg: ServerMessage, exceptId?: string) =>
@@ -109,10 +111,44 @@ export const RoomsLive = Layer.effect(
 
         const self = () => room.clients.get(user.id)?.user
 
+        // Per-typist state: piece hysteresis, the in-flight Jev fetch, and the latest input.
+        let pieceMemory: ReadonlyMap<number, PieceMemory> = new Map()
+        let inflight: Fiber.RuntimeFiber<void> | null = null
+        let latest: { text: string; anchor: Point } | null = null
+
+        const cancelInflight = Effect.suspend(() => {
+          const f = inflight
+          inflight = null
+          return f ? Fiber.interruptFork(f) : Effect.void
+        })
+
         const clearDraft = Effect.suspend(() => {
+          pieceMemory = new Map()
+          latest = null
           room.memory.delete(user.id)
           return room.drafts.delete(user.id) ? broadcast(room, new DraftCleared({ userId: user.id })) : Effect.void
         })
+
+        /** Build and broadcast the draft from what's known now; returns the pieces still waiting on Jev. */
+        const render = (text: string, anchor: Point) =>
+          Effect.suspend(() => {
+            const me = self()
+            if (!me) return Effect.succeed([])
+            const r = interpret({ text, handles: [], peek: classifier.peek, memory: pieceMemory })
+            pieceMemory = r.memory
+            if (r.graph.nodes.length === 0) return Effect.as(clearDraft, [])
+            const memory = materialize({
+              graph: r.graph,
+              prev: room.memory.get(user.id),
+              anchor,
+              user: me,
+              newId: () => crypto.randomUUID(),
+            })
+            const draft: Draft = { userId: user.id, text, nodes: memory.nodes }
+            room.memory.set(user.id, memory)
+            room.drafts.set(user.id, draft)
+            return Effect.as(broadcast(room, new DraftUpdated({ draft, debug: r.debug })), r.missing)
+          })
 
         const session: Session = {
           selfId: user.id,
@@ -125,26 +161,26 @@ export const RoomsLive = Layer.effect(
             }),
 
           setInput: (text, anchor) =>
-            Effect.suspend(() => {
-              const me = self()
-              if (!me) return Effect.void
-              if (!text.trim()) return clearDraft
-              const graph = interpretOffline(text)
-              if (graph.nodes.length === 0) return clearDraft
-              const memory = materialize({
-                graph,
-                prev: room.memory.get(user.id),
-                anchor,
-                user: me,
-                newId: () => crypto.randomUUID(),
-              })
-              const draft: Draft = { userId: user.id, text, nodes: memory.nodes }
-              room.memory.set(user.id, memory)
-              room.drafts.set(user.id, draft)
-              return broadcast(room, new DraftUpdated({ draft }))
+            Effect.gen(function* () {
+              yield* cancelInflight
+              if (!self()) return
+              if (!text.trim()) return yield* clearDraft
+              latest = { text, anchor }
+              const missing = yield* render(text, anchor)
+              if (missing.length === 0 || !classifier.enabled) return
+              // Jev answers arrive async: re-render with them only if this is still the latest input.
+              inflight = yield* Effect.fork(
+                classifier.fetch(missing).pipe(
+                  Effect.zipRight(Effect.suspend(() => (latest?.text === text ? render(text, anchor) : Effect.void))),
+                  Effect.asVoid,
+                ),
+              )
             }),
 
           commit: Effect.gen(function* () {
+            yield* cancelInflight
+            pieceMemory = new Map()
+            latest = null
             const draft = room.drafts.get(user.id)
             if (!draft || draft.nodes.length === 0) return
             room.drafts.delete(user.id)
@@ -155,7 +191,7 @@ export const RoomsLive = Layer.effect(
             yield* broadcast(room, new DraftCleared({ userId: user.id }))
           }),
 
-          discard: clearDraft,
+          discard: Effect.zipRight(cancelInflight, clearDraft),
 
           moveNode: (id, x, y, final) =>
             Effect.gen(function* () {
@@ -187,6 +223,7 @@ export const RoomsLive = Layer.effect(
 
           leave: Effect.gen(function* () {
             if (!room.clients.delete(user.id)) return
+            yield* cancelInflight
             yield* clearDraft
             yield* broadcast(room, new UserLeft({ id: user.id }))
             if (room.clients.size === 0) rooms.delete(roomId)

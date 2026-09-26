@@ -1,4 +1,4 @@
-import type { BoardNode, Draft, ServerMessage, User } from "@rtw/shared"
+import type { BoardNode, Draft, PieceDebug, ServerMessage, User } from "@rtw/shared"
 
 export type ConnectionStatus = "connecting" | "open" | "reconnecting"
 
@@ -10,6 +10,8 @@ export type RoomState = {
   nodes: ReadonlyMap<string, BoardNode>
   /** Draft layer, keyed by the typing user's id. */
   drafts: ReadonlyMap<string, Draft>
+  /** How each draft's pieces were classified (for ?debug=1), keyed by user id. */
+  debug: ReadonlyMap<string, readonly PieceDebug[]>
 }
 
 export const initialRoomState: RoomState = {
@@ -18,6 +20,7 @@ export const initialRoomState: RoomState = {
   users: new Map(),
   nodes: new Map(),
   drafts: new Map(),
+  debug: new Map(),
 }
 
 const withEntry = <K, V>(m: ReadonlyMap<K, V>, k: K, v: V) => new Map(m).set(k, v)
@@ -38,6 +41,7 @@ export function applyServerMessage(state: RoomState, msg: ServerMessage): RoomSt
         users: new Map(msg.users.map((u) => [u.id, u])),
         nodes: new Map(msg.nodes.map((n) => [n.id, n])),
         drafts: new Map(msg.drafts.map((d) => [d.userId, d])),
+        debug: new Map(),
       }
     case "UserJoined":
       return { ...state, users: withEntry(state.users, msg.user.id, msg.user) }
@@ -51,10 +55,14 @@ export function applyServerMessage(state: RoomState, msg: ServerMessage): RoomSt
       return { ...state, users: withEntry(state.users, msg.id, { ...u, cursor: msg.cursor }) }
     }
     case "DraftUpdated":
-      return { ...state, drafts: withEntry(state.drafts, msg.draft.userId, msg.draft) }
+      return {
+        ...state,
+        drafts: withEntry(state.drafts, msg.draft.userId, msg.draft),
+        debug: msg.debug ? withEntry(state.debug, msg.draft.userId, msg.debug) : state.debug,
+      }
     case "DraftCleared": {
       const drafts = without(state.drafts, msg.userId)
-      return drafts === state.drafts ? state : { ...state, drafts }
+      return drafts === state.drafts ? state : { ...state, drafts, debug: without(state.debug, msg.userId) }
     }
     case "NodesCommitted":
     case "NodesUpdated": {
