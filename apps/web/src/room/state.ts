@@ -11,6 +11,8 @@ export type RoomState = {
   edges: ReadonlyMap<string, BoardEdge>
   /** Draft layer, keyed by the typing user's id. */
   drafts: ReadonlyMap<string, Draft>
+  /** Committed elements drafts are currently pushing aside (derived by the server). */
+  displaced: ReadonlyMap<string, { x: number; y: number }>
   /** How each draft's pieces were classified (for ?debug=1), keyed by user id. */
   debug: ReadonlyMap<string, readonly PieceDebug[]>
 }
@@ -22,6 +24,7 @@ export const initialRoomState: RoomState = {
   nodes: new Map(),
   edges: new Map(),
   drafts: new Map(),
+  displaced: new Map(),
   debug: new Map(),
 }
 
@@ -44,6 +47,7 @@ export function applyServerMessage(state: RoomState, msg: ServerMessage): RoomSt
         nodes: new Map(msg.nodes.map((n) => [n.id, n])),
         edges: new Map(msg.edges.map((e) => [e.id, e])),
         drafts: new Map(msg.drafts.map((d) => [d.userId, d])),
+        displaced: new Map(msg.displaced.map((d) => [d.id, { x: d.x, y: d.y }])),
         debug: new Map(),
       }
     case "UserJoined":
@@ -79,6 +83,8 @@ export function applyServerMessage(state: RoomState, msg: ServerMessage): RoomSt
       for (const n of msg.nodes) nodes.set(n.id, n)
       return { ...state, nodes }
     }
+    case "LayoutUpdated":
+      return { ...state, displaced: new Map(msg.displaced.map((d) => [d.id, { x: d.x, y: d.y }])) }
     case "NodesRemoved": {
       const nodes = new Map(state.nodes)
       for (const id of msg.ids) nodes.delete(id)

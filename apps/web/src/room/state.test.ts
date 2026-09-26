@@ -19,7 +19,7 @@ const node = (id: string): BoardNode => ({
   authorColor: "#e11d48",
 })
 const welcome = (selfId: string, users = [ada], extra: Partial<{ nodes: BoardNode[] }> = {}) =>
-  new Welcome({ selfId, users, nodes: extra.nodes ?? [], edges: [], drafts: [] })
+  new Welcome({ selfId, users, nodes: extra.nodes ?? [], edges: [], drafts: [], displaced: [] })
 
 test("Welcome replaces state entirely (reconnect resync)", () => {
   const stale = applyServerMessage(initialRoomState, welcome("old", [ada, bo], { nodes: [node("n1")] }))
