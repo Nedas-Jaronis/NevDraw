@@ -61,6 +61,7 @@ describe("@ references in the engine", () => {
         { text: "db", handle: "@postgres" },
         { text: "x", handle: "@ghost" },
       ],
+      patches: [],
     }
     const v = validateHandles(g, new Set(["@postgres"]))
     expect(v.nodes[0]!.parent).toBeNull()

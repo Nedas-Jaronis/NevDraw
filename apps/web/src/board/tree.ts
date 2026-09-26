@@ -1,4 +1,4 @@
-import type { BoardEdge, BoardNode } from "@rtw/shared"
+import type { BoardEdge, BoardNode, Draft } from "@rtw/shared"
 import type { RoomState } from "../room/state.ts"
 
 export type Item = { node: BoardNode; draft: boolean; typing?: string }
@@ -30,10 +30,34 @@ export function buildTree(state: RoomState): Tree {
       items.set(node.id, first && typing ? { node, draft: true, typing } : { node, draft: true })
     }
   }
+  // Pending changes to existing elements (recolor, rename, move into a box), by element id.
+  const pending = new Map<string, { patch: Draft["patches"][number]; color: string }>()
+  for (const d of state.drafts.values()) {
+    const who = state.users.get(d.userId)
+    for (const p of d.patches) pending.set(p.id, { patch: p, color: who?.color ?? "#888" })
+  }
   for (const node of state.nodes.values()) {
     // Committed elements a draft is pushing aside show at their pushed spot.
     const d = state.displaced.get(node.id)
-    items.set(node.id, { node: d ? { ...node, x: d.x, y: d.y } : node, draft: false })
+    const base = d ? { ...node, x: d.x, y: d.y } : node
+    const change = pending.get(node.id)
+    if (!change) {
+      items.set(node.id, { node: base, draft: false })
+      continue
+    }
+    // Preview the change dashed, in the editor's color, until they press Enter.
+    const p = change.patch
+    items.set(node.id, {
+      node: {
+        ...base,
+        ...(p.label ? { label: p.label } : {}),
+        ...(p.type ? { type: p.type } : {}),
+        props: { ...base.props, ...(p.color ? { color: p.color } : {}) },
+        ...(p.parent ? { parent: p.parent, order: 1000 + base.order } : {}),
+        authorColor: change.color,
+      },
+      draft: true,
+    })
   }
 
   const roots: Item[] = []

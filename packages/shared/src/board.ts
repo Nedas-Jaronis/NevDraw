@@ -48,6 +48,17 @@ export const BoardEdge = Schema.Struct({
 })
 export type BoardEdge = typeof BoardEdge.Type
 
+/** A pending change to a committed element (applied on commit). */
+export const NodePatch = Schema.Struct({
+  id: Schema.String,
+  label: Schema.optional(Schema.String),
+  type: Schema.optional(NodeType),
+  color: Schema.optional(Schema.String),
+  /** New parent id (a draft container or a committed one). */
+  parent: Schema.optional(Schema.String),
+})
+export type NodePatch = typeof NodePatch.Type
+
 /** One user's live, unsaved interpretation of their input box. */
 export const Draft = Schema.Struct({
   userId: Schema.String,
@@ -55,5 +66,6 @@ export const Draft = Schema.Struct({
   text: Schema.String,
   nodes: Schema.Array(BoardNode),
   edges: Schema.optionalWith(Schema.Array(BoardEdge), { default: () => [] }),
+  patches: Schema.optionalWith(Schema.Array(NodePatch), { default: () => [] }),
 })
 export type Draft = typeof Draft.Type

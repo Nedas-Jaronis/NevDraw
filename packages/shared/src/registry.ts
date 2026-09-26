@@ -94,7 +94,7 @@ const arch = (describe: string, keywords: string[]): RegistryEntry => ({
 
 export const REGISTRY: { readonly [K in NodeType]: RegistryEntry } = {
   page: ui("A whole screen or page of an app or website, such as a landing page, dashboard or settings page", ["page", "screen", "landing", "dashboard", "homepage", "home page", "view", "route"], true),
-  section: ui("A region of a page that groups other elements, such as features, pricing, testimonials, footer or sidebar", ["section", "area", "panel", "sidebar", "footer", "features", "testimonials", "faq", "pricing"], true),
+  section: ui("A region of a page that groups other elements, such as features, pricing, testimonials, footer or sidebar", ["section", "area", "panel", "sidebar", "footer", "features", "testimonials", "faq", "pricing", "wrapper", "container", "group", "block"], true),
   navbar: ui("A navigation bar, header or menu across the top of a page", ["navbar", "nav bar", "navigation", "nav", "header", "menu", "top bar", "topbar"], false, "row"),
   hero: ui("The large introductory banner at the top of a page with a headline and call to action", ["hero", "banner", "headline", "jumbotron", "splash"]),
   form: ui("A form that collects several inputs, such as sign up, log in, checkout or contact", ["form", "signup", "sign up", "login", "log in", "sign in", "register", "checkout form", "contact form"], true),

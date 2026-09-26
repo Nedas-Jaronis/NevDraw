@@ -92,6 +92,7 @@ test("LLM suggestions for unknown handles are never shown", async () => {
         nodes: [{ key: "p0", type: "service" as const, label: "Api", parent: null, props: {} }],
         edges: [],
         suggestions: [{ text: "db", handle: "@ghost" }],
+        patches: [],
       }),
   })
   process.env.LLM_DEBOUNCE_MS = "30"

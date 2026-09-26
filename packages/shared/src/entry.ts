@@ -31,9 +31,25 @@ export type EntryEdge = typeof EntryEdge.Type
 export const Suggestion = Schema.Struct({ text: Schema.String, handle: Schema.String })
 export type Suggestion = typeof Suggestion.Type
 
+/**
+ * A change to an element already on the board, named by @handle: "make @x
+ * red", "rename @x to Checkout", "turn @x into a stopwatch", or moving it into
+ * a container ("wrap @a and @b into one box" → parent = the new box's key).
+ */
+export const EntryPatch = Schema.Struct({
+  target: Schema.String,
+  label: Schema.optional(Schema.String),
+  type: Schema.optional(NodeType),
+  color: Schema.optional(Schema.String),
+  /** A local key or @handle of the container it moves into. */
+  parent: Schema.optional(Schema.String),
+})
+export type EntryPatch = typeof EntryPatch.Type
+
 export const EntryGraph = Schema.Struct({
   nodes: Schema.Array(EntryNode),
   edges: Schema.Array(EntryEdge),
   suggestions: Schema.Array(Suggestion),
+  patches: Schema.optionalWith(Schema.Array(EntryPatch), { default: () => [] }),
 })
 export type EntryGraph = typeof EntryGraph.Type

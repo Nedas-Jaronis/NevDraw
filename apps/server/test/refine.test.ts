@@ -20,6 +20,7 @@ const llmGraph: LlmGraph = {
     { from: "p0", to: "n2", kind: "publishes" },
   ],
   suggestions: [],
+  patches: [],
 }
 
 describe("LLM wire format", () => {
@@ -32,6 +33,7 @@ describe("LLM wire format", () => {
       ],
       edges: [{ from: "a", to: "a", kind: "calls" }],
       suggestions: [],
+      patches: [],
     })
     expect(g.nodes.map((n) => [n.key, n.parent, n.label, n.props.layout])).toEqual([
       ["a", null, "Home", "row"],
@@ -73,7 +75,7 @@ describe("providers against mock HTTP servers", () => {
     expect(seen.url).toBe("/v1/chat/completions")
     expect(seen.auth).toBe("Bearer k-123456789012")
     expect(seen.body).toMatchObject({ model: "openai/gpt-oss-120b", response_format: { type: "json_schema", json_schema: { strict: true } } })
-    expect(seen.body.response_format.json_schema.schema.required).toEqual(["nodes", "edges", "suggestions"])
+    expect(seen.body.response_format.json_schema.schema.required).toEqual(["nodes", "edges", "suggestions", "patches"])
     expect(seen.body.response_format.json_schema.schema.$schema).toBeUndefined()
     expect(seen.body.messages[0].content).toBe(SYSTEM)
     expect(g.edges.map((e) => e.kind)).toEqual(["calls", "publishes"])
@@ -225,10 +227,29 @@ test("handles the LLM invents are dropped; the rest of its graph still shows", a
     nodes: [{ key: "p0", type: "service", label: "Api", parent: null, props: {} }],
     edges: [{ from: "p0", to: "@ghost", kind: "writes" }],
     suggestions: [{ text: "ghost", handle: "@ghost" }],
+    patches: [],
   }))
   const { join } = await setup(r.layer)
   const a = await join("Ada")
   a.send(new SetInput({ text: "api writes to ghost db", anchor }))
   const d = await a.waitFor(is("DraftUpdated", (m) => m.draft.nodes.length === 1 && m.draft.nodes[0]!.label === "Api"))
   expect(d.draft.edges).toEqual([])
+})
+
+test("explicit @-commands (edit / wrap / include) are deterministic: the LLM isn't asked to rewrite them", async () => {
+  process.env.LLM_DEBOUNCE_MS = "30"
+  // The LLM has nothing to add here (declines), so the instant reading is what commits.
+  const r = stubRefiner(() => null)
+  const { join } = await setup(r.layer)
+  const a = await join("Ada")
+  a.send(new SetInput({ text: "blue 25 minute timer", anchor }))
+  a.send(new Commit())
+  const [timer] = (await a.waitFor(is("NodesCommitted"))).nodes
+  const before = r.calls.length
+  a.send(new SetInput({ text: `make ${timer!.handle} a red clock`, anchor }))
+  await Bun.sleep(150)
+  a.send(new Commit())
+  const up = await a.waitFor(is("NodesUpdated", (m) => m.nodes.some((n) => n.id === timer!.id)))
+  expect(r.calls.slice(before)).toEqual([]) // no refine for the command
+  expect(up.nodes.find((n) => n.id === timer!.id)).toMatchObject({ type: "timer", props: { color: "#e03131" } })
 })

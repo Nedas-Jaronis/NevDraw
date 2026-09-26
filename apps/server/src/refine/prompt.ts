@@ -25,6 +25,16 @@ export const LlmGraph = Schema.Struct({
   ),
   edges: Schema.Array(Schema.Struct({ from: Schema.String, to: Schema.String, kind: EdgeKind })),
   suggestions: Schema.Array(Schema.Struct({ text: Schema.String, handle: Schema.String })),
+  /** Changes to existing elements ("" / "none" = unchanged). */
+  patches: Schema.Array(
+    Schema.Struct({
+      element: Schema.String,
+      label: Schema.String,
+      type: Schema.Literal(...NODE_TYPES, "none"),
+      color: Schema.String,
+      parent: Schema.String,
+    }),
+  ),
 })
 export type LlmGraph = typeof LlmGraph.Type
 
@@ -46,10 +56,19 @@ export function fromLlm(g: LlmGraph): EntryGraph {
     })),
     edges: g.edges.filter((e) => e.from !== e.to),
     suggestions: g.suggestions,
+    patches: g.patches
+      .filter((p) => p.element.startsWith("@"))
+      .map((p) => ({
+        target: p.element.trim().toLowerCase(),
+        ...(p.label.trim() ? { label: p.label.trim().slice(0, 60) } : {}),
+        ...(p.type !== "none" ? { type: p.type } : {}),
+        ...(/^#[0-9a-f]{6}$/i.test(p.color.trim()) ? { color: p.color.trim().toLowerCase() } : {}),
+        ...(p.parent.trim() ? { parent: p.parent.trim() } : {}),
+      })),
   }
 }
 
-const FIELDS = ["nodes", "edges", "suggestions", "key", "type", "label", "parent", "layout", "items", "of", "color", "from", "to", "kind", "text", "handle", "source", "target"]
+const FIELDS = ["nodes", "edges", "suggestions", "patches", "element", "key", "type", "label", "parent", "layout", "items", "of", "color", "from", "to", "kind", "text", "handle", "source", "target"]
 
 /**
  * Safety net for models that bend the shape in plain JSON mode: garbled
@@ -86,6 +105,13 @@ export function normalizeLlmJson(raw: unknown): unknown {
     })),
     edges: Array.isArray(g.edges) ? g.edges : [],
     suggestions: Array.isArray(g.suggestions) ? g.suggestions : [],
+    patches: (Array.isArray(g.patches) ? g.patches : []).map((p: any) => ({
+      element: String(p?.element ?? ""),
+      label: String(p?.label ?? ""),
+      type: p?.type ?? "none",
+      color: String(p?.color ?? ""),
+      parent: String(p?.parent ?? ""),
+    })),
   }
 }
 
@@ -121,6 +147,8 @@ edges: relationships between elements, as keys or @handles, with kind one of: ${
 - Resolve pronouns and chains ("the checkout calls stripe, then it emails the user via a queue").
 
 Pronouns: "them", "these", "both", "it" refer to the @handles under "recent" (what this person added last). "Connect them" means edges between those elements, in a sensible flow direction, and no new nodes.
+
+Changes to existing elements go in "patches", never as new nodes: "make @x red" → {element "@x", color red}; "rename @x to Checkout" → label; "turn @x into a stopwatch" → type (only change type when the text explicitly says turn into / convert to / change it to a; "make @x a red clock" is just a color); "wrap/group @a and @b into one box" or "…it should include @a @b" → a new container node plus a patch per element with parent = that container's key. Unused patch fields are "" (type "none").
 
 References: the board already has the elements listed under "board". Refer to them only by their exact @handle, never invent handles, and never re-create an element that the text refers to by @handle.
 suggestions: when plain text clearly means an existing board element but was not written as an @handle (e.g. "postgres" while @postgres exists), add {"text": the words used, "handle": the @handle}. Keep creating the node as usual.

@@ -23,7 +23,7 @@ const welcome = (selfId: string, users = [ada], extra: Partial<{ nodes: BoardNod
 
 test("Welcome replaces state entirely (reconnect resync)", () => {
   const stale = applyServerMessage(initialRoomState, welcome("old", [ada, bo], { nodes: [node("n1")] }))
-  const withDraft = applyServerMessage(stale, new DraftUpdated({ draft: { userId: "b", text: "x", nodes: [], edges: [] } }))
+  const withDraft = applyServerMessage(stale, new DraftUpdated({ draft: { userId: "b", text: "x", nodes: [], edges: [], patches: [] } }))
   const fresh = applyServerMessage({ ...withDraft, status: "reconnecting" }, welcome("a2", [ada], { nodes: [node("n2")] }))
   expect(fresh.status).toBe("open")
   expect(fresh.selfId).toBe("a2")
@@ -48,8 +48,8 @@ test("cursor for an unknown user is ignored", () => {
 
 test("drafts are replaced per user, cleared, and commits land in the committed layer", () => {
   let s = applyServerMessage(initialRoomState, welcome("a"))
-  s = applyServerMessage(s, new DraftUpdated({ draft: { userId: "a", text: "land", nodes: [node("n1")], edges: [] } }))
-  s = applyServerMessage(s, new DraftUpdated({ draft: { userId: "a", text: "landing page", nodes: [node("n1")], edges: [] } }))
+  s = applyServerMessage(s, new DraftUpdated({ draft: { userId: "a", text: "land", nodes: [node("n1")], edges: [], patches: [] } }))
+  s = applyServerMessage(s, new DraftUpdated({ draft: { userId: "a", text: "landing page", nodes: [node("n1")], edges: [], patches: [] } }))
   expect(s.drafts.get("a")?.text).toBe("landing page")
   s = applyServerMessage(s, new NodesCommitted({ nodes: [node("n1")] }))
   s = applyServerMessage(s, new DraftCleared({ userId: "a" }))

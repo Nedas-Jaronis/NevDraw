@@ -74,6 +74,7 @@ test("code-computed values beat the LLM's guesses for the same element", async (
     ],
     edges: [],
     suggestions: [],
+    patches: [],
   }
   const merged = keepComputed(llm, instant)
   expect(merged.nodes.map((n) => [n.label, n.props.color, n.props.items])).toEqual([
