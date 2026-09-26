@@ -1,46 +1,115 @@
-import type { BoardNode } from "@rtw/shared"
-import { motion } from "motion/react"
+import { type BoardNode, REGISTRY } from "@rtw/shared"
+import { AnimatePresence, motion } from "motion/react"
+import type { ReactNode } from "react"
+import type { Item, Tree } from "./tree.ts"
+import { Wire } from "./wires.tsx"
 
-export const NODE_WIDTH = 240
+export const CONTAINER_WIDTH = 320
+export const LEAF_WIDTH = 240
+
+const spring = { type: "spring", stiffness: 420, damping: 36 } as const
+
+const isContainer = (n: BoardNode) => REGISTRY[n.type].container
 
 /**
- * One board element. Drafts render dashed in the author's color; committed
- * nodes are solid with an author dot. The same id is kept across the
- * draft → committed transition so Motion animates it in place.
+ * A top-level element, absolutely positioned on the board. Drafts render
+ * dashed in the author's color; committed elements are calm and solid. The
+ * same id is kept across draft → commit so Motion animates it in place.
  */
-export function NodeView({ node, draft, typing }: { node: BoardNode; draft: boolean; typing?: string | undefined }) {
+export function RootView({ item, tree }: { item: Item; tree: Tree }) {
+  const { node, draft, typing } = item
   return (
     <motion.div
-      initial={{ opacity: 0, scale: 0.92, x: node.x, y: node.y }}
-      animate={{ opacity: draft ? 0.85 : 1, scale: 1, x: node.x, y: node.y }}
-      exit={{ opacity: 0, scale: 0.92, transition: { duration: 0.18 } }}
-      transition={{ type: "spring", stiffness: 420, damping: 34 }}
+      initial={{ opacity: 0, scale: 0.94, x: node.x, y: node.y }}
+      animate={{ opacity: 1, scale: 1, x: node.x, y: node.y }}
+      exit={{ opacity: 0, scale: 0.94, transition: { duration: 0.16 } }}
+      transition={spring}
       className="absolute left-0 top-0"
-      style={{ width: NODE_WIDTH }}
+      style={{ width: isContainer(node) ? CONTAINER_WIDTH : LEAF_WIDTH }}
     >
       {typing && (
-        <div className="pointer-events-none absolute -top-7 left-0 max-w-[320px] truncate text-xs" style={{ color: node.authorColor }}>
+        <div className="pointer-events-none absolute -top-6 left-1 max-w-[340px] truncate text-xs" style={{ color: node.authorColor }}>
           {typing}
         </div>
       )}
-      <div
-        className="relative rounded-xl bg-[var(--panel)] p-3 shadow-sm"
-        style={{
-          border: `2px ${draft ? "dashed" : "solid"} ${draft ? node.authorColor : "var(--panel-border)"}`,
-        }}
-      >
-        <div className="flex items-center gap-2">
-          <span className="rounded-md bg-black/5 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-[var(--muted)] dark:bg-white/10">
-            {node.type}
-          </span>
-          {!draft && <span className="ml-auto h-2 w-2 rounded-full" style={{ background: node.authorColor }} title="Author" />}
-        </div>
-        <div className="mt-2 font-medium leading-snug">{node.label}</div>
-        <div className="mt-2 space-y-1.5" aria-hidden>
-          <div className="h-1.5 w-4/5 rounded bg-black/10 dark:bg-white/10" />
-          <div className="h-1.5 w-3/5 rounded bg-black/10 dark:bg-white/10" />
-        </div>
-      </div>
+      <Frame node={node} draft={draft} root>
+        <Body item={item} tree={tree} />
+      </Frame>
     </motion.div>
+  )
+}
+
+/** A nested element: laid out by its parent's CSS flow, animated on reflow. */
+function ChildView({ item, tree }: { item: Item; tree: Tree }) {
+  return (
+    <motion.div
+      layout
+      initial={{ opacity: 0, scale: 0.96 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.96, transition: { duration: 0.14 } }}
+      transition={spring}
+      className="min-w-0"
+    >
+      <Frame node={item.node} draft={item.draft}>
+        <Body item={item} tree={tree} />
+      </Frame>
+    </motion.div>
+  )
+}
+
+function Frame(props: { node: BoardNode; draft: boolean; root?: boolean; children: ReactNode }) {
+  const { node, draft, root } = props
+  return (
+    <div
+      className={
+        root
+          ? "rounded-2xl bg-[var(--panel)] p-3 shadow-[0_1px_2px_rgba(0,0,0,0.04),0_8px_24px_-12px_rgba(0,0,0,0.14)]"
+          : "rounded-xl bg-[var(--surface)] p-2.5"
+      }
+      style={{ border: draft ? `1.5px dashed ${node.authorColor}` : "1px solid var(--hairline)" }}
+    >
+      {props.children}
+    </div>
+  )
+}
+
+const LAYOUT_CLASS = {
+  stack: "flex flex-col gap-2",
+  row: "flex flex-row gap-2 [&>*]:flex-1",
+  grid: "grid grid-cols-2 gap-2",
+} as const
+
+function Body({ item, tree }: { item: Item; tree: Tree }) {
+  const { node, draft } = item
+  const showAuthor = !draft && node.parent === null
+  if (!isContainer(node)) return <Wire node={node} showAuthor={showAuthor} />
+
+  const kids = tree.children.get(node.id) ?? []
+  return (
+    <div>
+      <Title node={node} showAuthor={showAuthor} />
+      <div className={`mt-2.5 ${LAYOUT_CLASS[node.props.layout ?? "stack"]}`}>
+        <AnimatePresence initial={false}>
+          {kids.map((k) => (
+            <ChildView key={k.node.id} item={k} tree={tree} />
+          ))}
+        </AnimatePresence>
+        {kids.length === 0 && <div className="h-16 rounded-lg border border-dashed border-[var(--hairline)]" />}
+      </div>
+    </div>
+  )
+}
+
+/** The type tag only when the label doesn't already say it ("Navbar" doesn't need "NAVBAR"). */
+const typeTag = (n: BoardNode) => (n.label.toLowerCase().includes(n.type.replace("-", " ")) ? null : n.type)
+
+export function Title({ node, showAuthor }: { node: BoardNode; showAuthor: boolean }) {
+  const tag = typeTag(node)
+  return (
+    <div className="flex items-center gap-2">
+      <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{node.label}</span>
+      {tag && <span className="shrink-0 text-[10px] uppercase tracking-wider text-[var(--muted)]">{tag}</span>}
+      {showAuthor && <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: node.authorColor }} />}
+    </div>
   )
 }

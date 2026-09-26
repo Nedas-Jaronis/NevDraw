@@ -3,7 +3,8 @@ import { classifyKeywords, labelFrom } from "../src/classify/keywords.ts"
 
 test.each([
   ["landing page", "page"],
-  ["landing page with a signup form", "page"],
+  ["signup button", "button"],
+  ["card input", "input"],
   ["signup form", "form"],
   ["postgres", "database"],
   ["api server", "service"],

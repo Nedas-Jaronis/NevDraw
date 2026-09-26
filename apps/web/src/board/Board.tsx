@@ -1,11 +1,11 @@
-import { type BoardNode, Commit, Discard, MoveCursor, type Point, SetInput, type User } from "@rtw/shared"
+import { Commit, Discard, MoveCursor, type Point, SetInput, type User } from "@rtw/shared"
 import { AnimatePresence } from "motion/react"
 import { useEffect, useRef, useState } from "react"
 import type { Identity } from "../identity.ts"
-import type { RoomState } from "../room/state.ts"
 import { useRoom } from "../room/useRoom.ts"
 import { InputBox } from "./InputBox.tsx"
-import { NodeView } from "./NodeView.tsx"
+import { RootView } from "./NodeView.tsx"
+import { buildTree } from "./tree.ts"
 
 /** Pan/zoom of this viewer. Identity for now; #4 makes it interactive. */
 export type Camera = { x: number; y: number; zoom: number }
@@ -33,6 +33,7 @@ export function Board({ roomId, identity }: { roomId: string; identity: Identity
 
   const others = [...state.users.values()].filter((u) => u.id !== state.selfId)
   const self = state.selfId ? state.users.get(state.selfId) : undefined
+  const tree = buildTree(state)
 
   // New top-level drafts appear just above the input box, in this viewer's view.
   const anchor = () => toWorld(camera, window.innerWidth / 2, window.innerHeight / 2 - 60)
@@ -48,8 +49,8 @@ export function Board({ roomId, identity }: { roomId: string; identity: Identity
         style={{ transform: `translate(${camera.x}px, ${camera.y}px) scale(${camera.zoom})` }}
       >
         <AnimatePresence>
-          {renderList(state).map(({ node, draft, typing }) => (
-            <NodeView key={node.id} node={node} draft={draft} typing={typing} />
+          {tree.roots.map((item) => (
+            <RootView key={item.node.id} item={item} tree={tree} />
           ))}
         </AnimatePresence>
       </div>
@@ -63,22 +64,6 @@ export function Board({ roomId, identity }: { roomId: string; identity: Identity
       <TopBar roomId={roomId} users={[...state.users.values()]} selfId={state.selfId} status={state.status} />
     </div>
   )
-}
-
-/**
- * Committed nodes plus everyone's drafts, keyed by node id. A committed node
- * wins over a draft with the same id (they briefly coexist on commit), so the
- * element stays mounted and animates from dashed to solid.
- */
-function renderList(state: RoomState): Array<{ node: BoardNode; draft: boolean; typing?: string }> {
-  const out = new Map<string, { node: BoardNode; draft: boolean; typing?: string }>()
-  for (const d of state.drafts.values()) {
-    const who = state.users.get(d.userId)
-    const typing = d.userId !== state.selfId && who ? `${who.name} is typing: ${d.text}` : undefined
-    d.nodes.forEach((node, i) => out.set(node.id, { node, draft: true, ...(i === 0 && typing ? { typing } : {}) }))
-  }
-  for (const node of state.nodes.values()) out.set(node.id, { node, draft: false })
-  return [...out.values()]
 }
 
 function RemoteCursor({ user, at }: { user: User; at: Point }) {

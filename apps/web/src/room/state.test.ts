@@ -10,6 +10,7 @@ const node = (id: string): BoardNode => ({
   type: "page",
   label: "Landing page",
   parent: null,
+  order: 0,
   props: {},
   x: 0,
   y: 0,

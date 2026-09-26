@@ -16,6 +16,8 @@ export const BoardNode = Schema.Struct({
   label: Schema.String,
   /** Parent node id, or null for top-level. */
   parent: Schema.NullOr(Schema.String),
+  /** Position among siblings inside a container (CSS flow order). */
+  order: Schema.optionalWith(Schema.Number, { default: () => 0 }),
   props: NodeProps,
   x: Schema.Number,
   y: Schema.Number,

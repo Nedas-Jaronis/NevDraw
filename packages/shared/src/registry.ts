@@ -64,3 +64,7 @@ export const REGISTRY: { readonly [K in NodeType]: RegistryEntry } = {
   "external-api": { lane: "architecture", container: false, defaultLayout: "stack", keywords: ["stripe", "twilio", "sendgrid", "openai", "gemini", "auth0", "clerk", "github api", "google maps", "third party", "external api", "webhook"] },
   box: { lane: "ui", container: false, defaultLayout: "stack", keywords: [] },
 }
+
+export const EDGE_KINDS = ["calls", "reads", "writes", "publishes", "subscribes", "navigates-to"] as const
+export const EdgeKind = Schema.Literal(...EDGE_KINDS)
+export type EdgeKind = typeof EdgeKind.Type
