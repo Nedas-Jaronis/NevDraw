@@ -48,7 +48,7 @@ export type Piece = {
  * A clarifying clause that names the elements just listed, in order:
  * "…, being server and sql", "namely …", "i.e. …", "called …", "named …".
  */
-const ALIAS = /(?:\s*,\s*|\s+)(being|namely|specifically|i\.?e\.?,?|which are|which is|that is|those being|these being|called|named|titled)\s+(.+)$/i
+const ALIAS = /(?:\s*,\s*|\s+)(being|namely|specifically|i\.?e\.?,?|those being|these being|called|named|titled)\s+(.+)$/i
 const NAMING = /^(called|named|titled)$/i
 
 function aliasItems(list: string): string[] {
@@ -73,7 +73,7 @@ const VERBS: ReadonlyArray<readonly [string, EdgeKind]> = [
   ["publish(?:es)? (?:events |messages )?to|publish(?:es)?|publishing to|emits? (?:events )?to|pushes (?:events |messages )?to|produces? to|enqueues? (?:in)?to", "publishes"],
   ["subscribes? to|subscribing to|listens? (?:to|on)|listening to|consumes? from|consuming from|consumes?", "subscribes"],
   ["navigates? to|navigating to|goes to|links? to|leads? to|redirects? to|routes? to", "navigates-to"],
-  ["calls|calling|requests|sends? (?:requests? |data )?to|sending to|posts? to|hits|talks? to|talking to|connects? to|connecting to|uses|using|depends on|->|→|=>", "calls"],
+  ["calls|calling|requests|sends? (?:requests? |data )?to|sending to|posts? to|hits|talks? to|talking to|connects? to|connecting to|connected to|(?:is |are )?(?:linked|attached|hooked up|wired|routed) to|uses|using|depends on|->|→|=>", "calls"],
 ]
 const VERB_RES = VERBS.map(([alt, kind]) => [new RegExp(`^(?:${alt})$`, "i"), kind] as const)
 const VERB_ALTERNATION = VERBS.map(([alt]) => alt.replace(/\|?(?:->|→|=>)/g, "")).join("|")
@@ -237,11 +237,12 @@ export function split(text: string): Piece[] {
       if (i % 2 === 1) {
         const k = verbKind(part)
         if (k) {
+          // "connected to" reads as "connects".
           // "A writes to …": the arrow starts at the previous piece, unless we're
           // continuing a list of relations ("… and publishes to …"), which start at the subject.
           if (connector !== "edge" || kind === null) subject = prev
           kind = k
-          verbLabel = /^\s*connect/i.test(part) ? "connects" : undefined
+          verbLabel = /^\s*(?:(?:is|are)\s+)?(?:connect|link|attach|hook|wire)/i.test(part) ? "connects" : undefined
           connector = "edge"
         } else if (connector !== "edge") {
           connector = prev === null ? "start" : CHILD_JOINER.test(part) ? "with" : "and"
@@ -257,6 +258,8 @@ export function split(text: string): Piece[] {
       // Drop a half-typed joiner at the end ("landing page with" → "landing page").
       const t = (into && !outer ? into[1]! : body)
         .trim()
+        .replace(/[\s,]+(?:which|that|who)(?:\s+(?:is|are|will be|gets|get))?(?:\s+(?:then|also|in turn))?$/i, "")
+        .replace(/[\s,]+(?:and\s+)?then$/i, "")
         .replace(/[\s,]*\b(with|and|including|containing|featuring|plus|that|which)$/i, "")
         .replace(/[\s,&]+$/, "")
       if (FILLER.test(t) || META.test(t)) continue

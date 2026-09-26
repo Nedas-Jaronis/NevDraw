@@ -1,4 +1,4 @@
-import { EVOCATIVE_COLORS, type NodeType, parseColor } from "@rtw/shared"
+import { EVOCATIVE_COLORS, type NodeType, parseColor, REGISTRY } from "@rtw/shared"
 import { classifyKeywords } from "../classify/keywords.ts"
 
 /**
@@ -13,12 +13,22 @@ export type Collection = { type: NodeType; layout?: "grid" | "row"; of?: NodeTyp
 
 const singular = (s: string) => s.replace(/(\w{3,}?)(ies)$/i, "$1y").replace(/(\w{3,}[^s])s$/i, "$1")
 
+/** "a stack / cluster / pool of 5 servers" → "5 servers" (a group of system pieces). */
+export function systemGroup(text: string): string | null {
+  const m = /^(?:a|an|the)?\s*(?:stack|cluster|pool|fleet|group|set|farm|tier|layer|bunch|couple)s?\s+of\s+(.+)$/i.exec(text.trim())
+  if (!m) return null
+  const item = classifyKeywords(singular(m[1]!.trim().replace(/^(?:\d+|two|three|four|five|six|seven|eight)\s+/i, ""))).type
+  return REGISTRY[item].lane === "architecture" ? m[1]!.trim() : null
+}
+
 /** "a table of timers" → table of timer; "a grid of cards" → section (grid) of card. */
 export function collectionOf(text: string): Collection | null {
   const m = COLLECTION.exec(text.trim())
   if (!m) return null
   const word = m[1]!.toLowerCase()
-  const item = classifyKeywords(singular(m[2]!.trim())).type
+  const item = classifyKeywords(singular(m[2]!.trim().replace(/^\d+\s+/, ""))).type
+  // "a stack of 5 servers" is five servers on the diagram, not a list widget.
+  if (REGISTRY[item].lane === "architecture") return null
   const of = item === "box" ? undefined : item
   if (/^table/.test(word)) return { type: "table", ...(of ? { of } : {}) }
   if (/^(grid|galler|deck|carousel)/.test(word)) return { type: "section", layout: "grid", ...(of ? { of } : {}) }

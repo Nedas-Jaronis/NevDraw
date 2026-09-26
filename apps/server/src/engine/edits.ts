@@ -1,4 +1,5 @@
 import type { EntryPatch, NodeType } from "@rtw/shared"
+import type { HandleInfo } from "./assemble.ts"
 import { classifyKeywords } from "../classify/keywords.ts"
 import { explicitColor } from "./modifiers.ts"
 
@@ -41,4 +42,45 @@ export function editOf(text: string, known: ReadonlySet<string>): EntryPatch | n
   const color = label ? undefined : (explicitColor(rest) ?? undefined)
   if (!label && !type && !color) return null
   return { target, ...(label ? { label } : {}), ...(type ? { type } : {}), ...(color ? { color } : {}) }
+}
+
+/** Words that mean "every element" rather than a type. */
+const GENERIC = /^(instances?|elements?|components?|boxes?|nodes?|things?|items?|modals?|blocks?|parts?|pieces?|of|the|them|it|on|in|board|canvas|this|here|to|be|into|colou?r)$/i
+const ALL = /\b(all|every|each|everything|entire|whole)\b/i
+const THEM = /\b(them|these|those|both)\b/i
+const VERB = /\b(make|makes|turn|change|set|colou?r|paint|recolou?r|update|switch|create)\b/gi
+const SHADE = /\b(light|dark|deep|pale|soft|bright|neon|vivid|muted|dusty|baby|hot|royal)\b/gi
+
+/**
+ * "make all instances red", "create all servers red", "paint every database
+ * blue", "make them green": the same color for many existing elements. A type
+ * word narrows it ("servers" → services); "them" means the recent elements.
+ */
+export function bulkEditOf(text: string, handles: HandleInfo, recent: readonly string[]): EntryPatch[] | null {
+  if (/@[a-z0-9]/i.test(text)) return null
+  const all = ALL.test(text)
+  const them = !all && THEM.test(text)
+  if (!all && !them) return null
+  const color = explicitColor(text)
+  if (!color) return null
+
+  // Besides the scope, verbs and color words, what's left names the type (if anything).
+  const words = text
+    .replace(VERB, " ")
+    .replace(ALL, " ")
+    .replace(THEM, " ")
+    .replace(SHADE, " ")
+    .toLowerCase()
+    .split(/[^a-z-]+/)
+    .filter((w) => w && !GENERIC.test(w) && !explicitColor(w))
+  const types = new Set<NodeType>()
+  for (const w of words) {
+    const t = classifyKeywords(w.replace(/s$/, "")).type
+    if (t === "box") return null // an unknown word: not a bulk color change
+    types.add(t)
+  }
+
+  const targets = them ? recent.filter((h) => handles.has(h)) : [...handles.keys()]
+  const picked = targets.filter((h) => types.size === 0 || types.has(handles.get(h)!.type!))
+  return picked.length ? picked.map((target) => ({ target, color })) : null
 }
