@@ -12,12 +12,13 @@ cp .env.example .env   # optional: add Jev / gpt-oss keys
 bun dev          # web on http://localhost:3000, Effect server on :3001 (/ws forwarded)
 ```
 
-One port for demos (the Effect server serves the built app and the room socket):
+Put it online for others (builds, starts the server on :3000, opens a Cloudflare quick tunnel, prints the public link and a QR code):
 
 ```bash
-bun run build && bun run start                    # http://localhost:3000
-cloudflared tunnel --url http://localhost:3000    # share the printed https://*.trycloudflare.com link
+bun run share
 ```
+
+The link changes every time the tunnel restarts, so leave it running while people are on the board. Each board also has a **Share** button with its own QR code.
 
 ## Using the board
 
