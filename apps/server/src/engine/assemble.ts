@@ -58,6 +58,16 @@ export function aliasLabel(base: string, alias: string | undefined): string {
   return titleCase(a)
 }
 
+/**
+ * What a classifier should look at: for a repeated group ("three pricing
+ * cards in a row") that's one item ("pricing card"), since the group itself
+ * is always a section.
+ */
+export function classificationText(text: string): string {
+  if (countOf(text) <= 1) return text
+  return cleanLabel(text, true).toLowerCase()
+}
+
 /** A label without counts or layout phrases, singular when repeated. */
 function cleanLabel(text: string, repeated: boolean): string {
   // An unknown "@thing" is just text: the server never invents references.

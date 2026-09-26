@@ -1,5 +1,6 @@
 import { type EdgeKind, type Layout, type NodeType, REGISTRY } from "@rtw/shared"
 import { classifyKeywords } from "../classify/keywords.ts"
+import { classificationText } from "./assemble.ts"
 import type { Piece } from "./split.ts"
 
 /**
@@ -36,7 +37,8 @@ export function layoutPhrase(text: string): Layout | "none" {
 
 /** Offline answers from keywords: instant, and the fallback whenever Jev is unavailable. */
 export function keywordAnswers(piece: Piece): PieceAnswers {
-  const guess = classifyKeywords(piece.text)
+  // Repeats are classified by their item ("pricing card"), counted by code.
+  const guess = classifyKeywords(classificationText(piece.text))
   const layout = layoutPhrase(piece.text)
   return {
     nodeType: { value: guess.type, confidence: guess.confidence },

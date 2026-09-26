@@ -2,7 +2,7 @@ import type { EntryGraph } from "@rtw/shared"
 import { describe, expect, test } from "bun:test"
 import { keywordAnswers, type PieceAnswers } from "../src/engine/answers.ts"
 import { assemble, countOf } from "../src/engine/assemble.ts"
-import { interpretOffline, materialize } from "../src/engine/index.ts"
+import { interpretOffline, materialize, pieceStates } from "../src/engine/index.ts"
 import { split } from "../src/engine/split.ts"
 
 const user = { id: "u1", name: "Ada", color: "#e11d48", cursor: null }
@@ -93,6 +93,20 @@ describe("assemble (offline answers)", () => {
 
   test("unknown text becomes a labeled box", () => {
     expect(shape(interpretOffline("zebra crossing"))).toEqual(["box:Zebra crossing"])
+  })
+
+  test("repeats are classified by their item, not the group", () => {
+    const pieces = split("landing page with three pricing cards in a row")
+    // Jev sees "pricing card", not "three pricing cards in a row".
+    expect(pieceStates(pieces, []).map((s) => s.piece)).toEqual(["landing page", "pricing card"])
+    // Even if a classifier calls the phrase a section, the copies are cards (keywords classify the item).
+    expect(shape(interpretOffline("landing page with three pricing cards in a row"))).toEqual([
+      "page:Landing page",
+      "section:Pricing cards<page",
+      "card:Pricing card<section",
+      "card:Pricing card<section",
+      "card:Pricing card<section",
+    ])
   })
 
   test("a confident childOfContainer answer nests without 'with' (the Jev hook)", () => {

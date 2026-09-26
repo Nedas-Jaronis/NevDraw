@@ -1,7 +1,7 @@
 import type { EntryGraph } from "@rtw/shared"
 import type { PieceState } from "../classify/Jev.ts"
 import { keywordAnswers, type PieceAnswers } from "./answers.ts"
-import { assemble, type HandleInfo } from "./assemble.ts"
+import { assemble, classificationText, type HandleInfo } from "./assemble.ts"
 import { type Piece, split } from "./split.ts"
 import { type PieceMemory, stabilize } from "./stabilize.ts"
 
@@ -28,7 +28,7 @@ export function pieceStates(pieces: readonly Piece[], handles: readonly string[]
     return Number.isInteger(i) ? (pieces[i]?.text ?? null) : null
   }
   return pieces.map((p, i) => ({
-    piece: p.text,
+    piece: classificationText(p.text),
     previous: i > 0 ? pieces[i - 1]!.text : null,
     container: textOf(parentOf.get(`p${p.index}`)),
     handles,
