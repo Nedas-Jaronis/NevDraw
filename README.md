@@ -19,6 +19,14 @@ bun run build && bun run start                    # http://localhost:3000
 cloudflared tunnel --url http://localhost:3000    # share the printed https://*.trycloudflare.com link
 ```
 
+## Keys and tuning
+
+All keys are optional and live in `.env` (see `.env.example`): `TYPESAFE_API_KEY` (Jev: instant drafts), `GEMINI_API_KEY` and/or `GPTOSS_API_KEY` (LLM cleanup pass). Without them the board runs on the built-in keyword classifier.
+
+```bash
+bun run probe     # measures real Jev / Gemini / gpt-oss latency with your keys and prints tuning values
+```
+
 ## Develop
 
 ```bash
