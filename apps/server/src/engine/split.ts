@@ -23,7 +23,12 @@ export type Piece = {
   connector: Connector
   /** For "edge" pieces: the arrow's kind and the index of its source piece. */
   edge?: { kind: EdgeKind; from: number }
+  /** "add a form to @landing-page": the @handle this piece goes inside. */
+  into?: string
 }
+
+/** "signup form to @landing-page" → ["signup form", "@landing-page"]. */
+const INTO = /^(.*?\S)\s+(?:to|in|into|inside|on|under)\s+(@[a-z0-9][a-z0-9-]*)$/i
 
 const SENTENCE = /[.;\n]+/
 
@@ -88,8 +93,9 @@ export function split(text: string): Piece[] {
         }
         continue
       }
+      const into = INTO.exec(part.trim())
       // Drop a half-typed joiner at the end ("landing page with" → "landing page").
-      const t = part
+      const t = (into ? into[1]! : part)
         .trim()
         .replace(/[\s,]*\b(with|and|including|containing|featuring|plus|that|which)$/i, "")
         .replace(/[\s,&]+$/, "")
@@ -103,7 +109,12 @@ export function split(text: string): Piece[] {
         pieces.push({ index, text: t, connector: "edge", edge: { kind, from: subject } })
         if (startsClause) kind = null
       } else {
-        pieces.push({ index, text: t, connector: prev === null ? "start" : connector === "edge" ? "and" : connector })
+        pieces.push({
+          index,
+          text: t,
+          connector: prev === null ? "start" : connector === "edge" ? "and" : connector,
+          ...(into ? { into: into[2]!.toLowerCase() } : {}),
+        })
         connector = "and"
         kind = null
       }

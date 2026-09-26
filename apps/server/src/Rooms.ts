@@ -11,7 +11,9 @@ import {
   NodesRemoved,
   NodesUpdated,
   type Point,
+  REGISTRY,
   type ServerMessage,
+  uniqueHandle,
   type User,
   UserJoined,
   UserLeft,
@@ -20,7 +22,7 @@ import {
 import { Context, Deferred, Effect, Fiber, Layer, Queue } from "effect"
 import { BoardStore } from "./BoardStore.ts"
 import { Classifier } from "./classify/Classifier.ts"
-import { type DraftMemory, interpret, materialize, type PieceMemory } from "./engine/index.ts"
+import { type BoardView, type DraftMemory, type HandleInfo, interpret, materialize, type PieceMemory } from "./engine/index.ts"
 import { avoid, estimateSizes, pushAside, type Rect } from "./engine/layout.ts"
 
 /** One connected socket in a room. Messages are queued; the socket's own fiber drains them. */
@@ -38,6 +40,8 @@ type Room = {
   drafts: Map<string, Draft>
   /** Which board id each of a user's draft keys became (server-only). */
   memory: Map<string, DraftMemory>
+  /** @handle → node id for every committed element. */
+  handles: Map<string, string>
   /** Committed elements currently pushed aside by drafts (derived, never saved). */
   displaced: ReadonlyMap<string, { x: number; y: number }>
   /** Resolves once the committed layer has been loaded from the store. */
@@ -102,6 +106,42 @@ export const RoomsLive = Layer.effect(
         return broadcast(room, new LayoutUpdated({ displaced: displacementList(next) }))
       })
 
+    /**
+     * Give every node without a handle a unique, readable one, register it,
+     * and return the nodes that changed. Handles never change afterwards.
+     */
+    const withHandles = (room: Room, nodes: readonly BoardNode[]): BoardNode[] => {
+      for (const n of nodes) if (n.handle) room.handles.set(n.handle, n.id)
+      const changed: BoardNode[] = []
+      for (const n of nodes) {
+        if (n.handle) continue
+        const handle = uniqueHandle(n.label, n.type, new Set(room.handles.keys()))
+        const named = { ...n, handle }
+        room.handles.set(handle, n.id)
+        room.nodes.set(n.id, named)
+        changed.push(named)
+      }
+      return changed
+    }
+
+    const boardView = (room: Room): BoardView => {
+      const byHandle = new Map<string, BoardNode>()
+      for (const [h, id] of room.handles) {
+        const n = room.nodes.get(id)
+        if (n) byHandle.set(h, n)
+      }
+      return { byHandle, byId: room.nodes }
+    }
+
+    const handleInfo = (room: Room): HandleInfo => {
+      const info = new Map<string, { container: boolean }>()
+      for (const [h, id] of room.handles) {
+        const n = room.nodes.get(id)
+        if (n) info.set(h, { container: REGISTRY[n.type].container })
+      }
+      return info
+    }
+
     const openRoom = (roomId: string) =>
       Effect.gen(function* () {
         const ready = yield* Deferred.make<void>()
@@ -117,12 +157,16 @@ export const RoomsLive = Layer.effect(
           drafts: new Map(),
           memory: new Map(),
           displaced: new Map(),
+          handles: new Map(),
           ready,
         }
         rooms.set(roomId, room)
         const saved = yield* store.load(roomId)
         for (const n of saved.nodes) room.nodes.set(n.id, n)
         for (const e of saved.edges) room.edges.set(e.id, e)
+        // Boards saved before @handles existed get theirs now (once, permanently).
+        const named = withHandles(room, saved.nodes)
+        if (named.length) yield* store.upsert(roomId, named)
         yield* Deferred.succeed(ready, undefined)
         return room
       })
@@ -197,7 +241,7 @@ export const RoomsLive = Layer.effect(
           Effect.suspend(() => {
             const me = self()
             if (!me) return Effect.succeed([])
-            const r = interpret({ text, handles: [], peek: classifier.peek, memory: pieceMemory })
+            const r = interpret({ text, handles: handleInfo(room), peek: classifier.peek, memory: pieceMemory })
             pieceMemory = r.memory
             if (r.graph.nodes.length === 0) return Effect.as(clearDraft, [])
             const prev = room.memory.get(user.id)
@@ -205,7 +249,7 @@ export const RoomsLive = Layer.effect(
               room,
               user.id,
               prev,
-              materialize({ graph: r.graph, prev, anchor, user: me, newId: () => crypto.randomUUID() }),
+              materialize({ graph: r.graph, prev, anchor, user: me, newId: () => crypto.randomUUID(), board: boardView(room) }),
             )
             const draft: Draft = { userId: user.id, text, nodes: memory.nodes, edges: memory.edges }
             room.memory.set(user.id, memory)
@@ -263,9 +307,10 @@ export const RoomsLive = Layer.effect(
             room.memory.delete(user.id)
             for (const n of draft.nodes) room.nodes.set(n.id, n)
             for (const e of draft.edges) room.edges.set(e.id, e)
-            yield* store.upsert(roomId, [...moved, ...draft.nodes], draft.edges)
+            const committed = withHandles(room, draft.nodes)
+            yield* store.upsert(roomId, [...moved, ...committed], draft.edges)
             if (moved.length) yield* broadcast(room, new NodesUpdated({ nodes: moved }))
-            yield* broadcast(room, new NodesCommitted({ nodes: draft.nodes, edges: draft.edges }))
+            yield* broadcast(room, new NodesCommitted({ nodes: committed, edges: draft.edges }))
             yield* broadcast(room, new DraftCleared({ userId: user.id }))
             yield* relayout(room)
           }),
@@ -296,7 +341,11 @@ export const RoomsLive = Layer.effect(
               for (let i = 0; i < ids.length; i++) {
                 for (const n of room.nodes.values()) if (n.parent === ids[i]) ids.push(n.id)
               }
-              for (const d of ids) room.nodes.delete(d)
+              for (const d of ids) {
+                const h = room.nodes.get(d)?.handle
+                if (h) room.handles.delete(h)
+                room.nodes.delete(d)
+              }
               const gone = new Set(ids)
               const edgeIds = [...room.edges.values()].filter((e) => gone.has(e.from) || gone.has(e.to)).map((e) => e.id)
               for (const e of edgeIds) room.edges.delete(e)

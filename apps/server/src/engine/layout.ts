@@ -96,11 +96,21 @@ export function pushAside(input: {
   sizes: ReadonlyMap<string, Size>
 }): Map<string, { x: number; y: number }> {
   const rect = (n: BoardNode): Rect => ({ x: n.x, y: n.y, ...(input.sizes.get(n.id) ?? { w: ROOT_LEAF_W, h: 60 }) })
-  const fixed: Rect[] = [...input.drafts.filter((n) => n.parent === null).map(rect)]
+  const byId = new Map(input.committed.map((n) => [n.id, n]))
+  // A committed container that a draft is adding children to is growing too: it holds still.
+  const hosts = new Set<string>()
+  for (const d of input.drafts) {
+    let p = d.parent ? byId.get(d.parent) : undefined
+    while (p && p.parent !== null) p = byId.get(p.parent)
+    if (p) hosts.add(p.id)
+  }
+  const fixed: Rect[] = [...input.drafts.filter((n) => n.parent === null).map(rect), ...[...hosts].map((id) => rect(byId.get(id)!))]
   if (fixed.length === 0) return new Map()
-  for (const n of input.committed) if (n.parent === null && n.pinned) fixed.push(rect(n))
+  for (const n of input.committed) if (n.parent === null && n.pinned && !hosts.has(n.id)) fixed.push(rect(n))
 
-  const movable = input.committed.filter((n) => n.parent === null && !n.pinned).map((n) => ({ id: n.id, r: rect(n), base: rect(n) }))
+  const movable = input.committed
+    .filter((n) => n.parent === null && !n.pinned && !hosts.has(n.id))
+    .map((n) => ({ id: n.id, r: rect(n), base: rect(n) }))
   // Only elements actually hit by a draft (directly or by a cascade) move.
   for (let pass = 0; pass < 24; pass++) {
     let moved = false

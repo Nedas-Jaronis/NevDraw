@@ -1,6 +1,6 @@
 import { type BoardNode, REGISTRY } from "@rtw/shared"
 import { AnimatePresence, motion } from "motion/react"
-import type { ReactNode } from "react"
+import { createContext, type ReactNode, useContext } from "react"
 import type { Item, Tree } from "./tree.ts"
 import { Wire } from "./wires.tsx"
 
@@ -8,6 +8,9 @@ export const CONTAINER_WIDTH = 320
 export const LEAF_WIDTH = 240
 
 const spring = { type: "spring", stiffness: 420, damping: 36 } as const
+
+/** The @handle being pointed at (autocomplete / reference chips): its element glows. */
+export const HighlightContext = createContext<{ handle: string | null; color: string }>({ handle: null, color: "#000" })
 
 const isContainer = (n: BoardNode) => REGISTRY[n.type].container
 
@@ -57,7 +60,7 @@ export function RootView(props: {
           {typing}
         </div>
       )}
-      <Frame node={node} draft={draft} root>
+      <Frame node={node} draft={draft} root selected={selected}>
         <Body item={item} tree={tree} />
       </Frame>
     </motion.div>
@@ -82,17 +85,22 @@ function ChildView({ item, tree }: { item: Item; tree: Tree }) {
   )
 }
 
-function Frame(props: { node: BoardNode; draft: boolean; root?: boolean; children: ReactNode }) {
+function Frame(props: { node: BoardNode; draft: boolean; root?: boolean; selected?: boolean; children: ReactNode }) {
   const { node, draft, root } = props
+  const hl = useContext(HighlightContext)
+  const lit = hl.handle !== null && node.handle === hl.handle
   return (
     <div
       data-node-id={node.id}
-      className={
+      className={`frame transition-shadow ${props.selected ? "is-selected" : ""} ${
         root
           ? "rounded-2xl bg-[var(--panel)] p-3 shadow-[0_1px_2px_rgba(0,0,0,0.04),0_8px_24px_-12px_rgba(0,0,0,0.14)]"
           : "rounded-xl bg-[var(--surface)] p-2.5"
-      }
-      style={{ border: draft ? `1.5px dashed ${node.authorColor}` : "1px solid var(--hairline)" }}
+      }`}
+      style={{
+        border: draft ? `1.5px dashed ${node.authorColor}` : "1px solid var(--hairline)",
+        ...(lit ? { boxShadow: `0 0 0 3px color-mix(in srgb, ${hl.color} 35%, transparent)` } : {}),
+      }}
     >
       {props.children}
     </div>
@@ -132,9 +140,10 @@ const typeTag = (n: BoardNode) => (n.label.toLowerCase().includes(n.type.replace
 export function Title({ node, showAuthor }: { node: BoardNode; showAuthor: boolean }) {
   const tag = typeTag(node)
   return (
-    <div className="flex items-center gap-2">
+    <div className="frame-title flex items-center gap-2">
       <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{node.label}</span>
-      {tag && <span className="shrink-0 text-[10px] uppercase tracking-wider text-[var(--muted)]">{tag}</span>}
+      {node.handle && <span className="frame-handle shrink-0 text-[11px] text-[var(--muted)]">{node.handle}</span>}
+      {tag && <span className="frame-type shrink-0 text-[10px] uppercase tracking-wider text-[var(--muted)]">{tag}</span>}
       {showAuthor && <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: node.authorColor }} />}
     </div>
   )
