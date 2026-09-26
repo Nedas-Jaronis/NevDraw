@@ -3,10 +3,13 @@ import { type ClientMessage, decodeServerMessage, encodeClientMessage, type Serv
 import { Effect, Either, type Layer, ManagedRuntime } from "effect"
 import { makeApp } from "../src/app.ts"
 import { type BoardStore, makeMemoryStore } from "../src/BoardStore.ts"
+import { type Jev, JevDisabled } from "../src/classify/Jev.ts"
 
 /** Boots the real server on a random port for protocol-level tests. */
-export async function startServer(options: { store?: Layer.Layer<BoardStore> } = {}) {
-  const runtime = ManagedRuntime.make(makeApp({ port: 0, store: options.store ?? makeMemoryStore() }))
+export async function startServer(options: { store?: Layer.Layer<BoardStore>; jev?: Layer.Layer<Jev> } = {}) {
+  const runtime = ManagedRuntime.make(
+    makeApp({ port: 0, store: options.store ?? makeMemoryStore(), jev: options.jev ?? JevDisabled }),
+  )
   const address = await runtime.runPromise(Effect.map(HttpServer.HttpServer, (s) => s.address))
   if (address._tag !== "TcpAddress") throw new Error("expected a TCP address")
   return {

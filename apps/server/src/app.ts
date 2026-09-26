@@ -3,6 +3,8 @@ import { BunHttpServer } from "@effect/platform-bun"
 import { Layer } from "effect"
 import { resolve } from "node:path"
 import { BoardStore, sqliteStore } from "./BoardStore.ts"
+import { ClassifierLive } from "./classify/Classifier.ts"
+import { type Jev, JevFromEnv } from "./classify/Jev.ts"
 import { RoomsLive } from "./Rooms.ts"
 import { roomSocket } from "./socket.ts"
 import { staticFiles } from "./static.ts"
@@ -15,10 +17,11 @@ export const router = HttpRouter.empty.pipe(
 )
 
 /** The whole app on one port: the web app plus the room WebSocket. */
-export const makeApp = (options: { port: number; store?: Layer.Layer<BoardStore> }) =>
+export const makeApp = (options: { port: number; store?: Layer.Layer<BoardStore>; jev?: Layer.Layer<Jev> }) =>
   HttpServer.serve(router).pipe(
     HttpServer.withLogAddress,
     Layer.provide(RoomsLive),
+    Layer.provide(ClassifierLive.pipe(Layer.provide(options.jev ?? JevFromEnv))),
     Layer.provide(options.store ?? sqliteStore(process.env.DB_PATH ?? DEFAULT_DB_PATH)),
     Layer.provideMerge(BunHttpServer.layer({ port: options.port })),
   )

@@ -1,4 +1,4 @@
-import { type Layout, type NodeType, REGISTRY } from "@rtw/shared"
+import { type EdgeKind, type Layout, type NodeType, REGISTRY } from "@rtw/shared"
 import { classifyKeywords } from "../classify/keywords.ts"
 import type { Piece } from "./split.ts"
 
@@ -15,6 +15,12 @@ export type PieceAnswers = {
   childOfContainer: number
   /** A layout the text asks for, if any. */
   layout: { value: Layout | "none"; confidence: number }
+  /** A relationship between two elements (#7). */
+  edgeKind: { value: EdgeKind | "none"; confidence: number }
+  /** Refers to an existing @handle on the board (#9). */
+  targetsHandle: number
+  /** Keyword answers are provisional placeholders until Jev answers. */
+  source: "keyword" | "jev"
 }
 
 const ROW = /\b(in a row|side by side|horizontal(ly)?|inline|columns?)\b/i
@@ -37,5 +43,8 @@ export function keywordAnswers(piece: Piece): PieceAnswers {
     isContainer: REGISTRY[guess.type].container ? 1 : 0,
     childOfContainer: piece.connector === "with" ? 1 : 0,
     layout: { value: layout, confidence: layout === "none" ? 0 : 0.9 },
+    edgeKind: { value: "none", confidence: 1 },
+    targetsHandle: 0,
+    source: "keyword",
   }
 }

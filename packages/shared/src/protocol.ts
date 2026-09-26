@@ -77,8 +77,20 @@ export class CursorMoved extends Schema.TaggedClass<CursorMoved>()("CursorMoved"
   cursor: Schema.NullOr(Point),
 }) {}
 
+/** Per-piece classification, for the ?debug=1 view. */
+export const PieceDebug = Schema.Struct({
+  text: Schema.String,
+  type: Schema.String,
+  confidence: Schema.Number,
+  source: Schema.Literal("keyword", "jev"),
+})
+export type PieceDebug = typeof PieceDebug.Type
+
 /** A user's draft changed (replaces their previous draft entirely). */
-export class DraftUpdated extends Schema.TaggedClass<DraftUpdated>()("DraftUpdated", { draft: Draft }) {}
+export class DraftUpdated extends Schema.TaggedClass<DraftUpdated>()("DraftUpdated", {
+  draft: Draft,
+  debug: Schema.optional(Schema.Array(PieceDebug)),
+}) {}
 
 export class DraftCleared extends Schema.TaggedClass<DraftCleared>()("DraftCleared", { userId: Schema.String }) {}
 

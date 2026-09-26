@@ -6,7 +6,10 @@ import { useRoom } from "../room/useRoom.ts"
 import { type Camera, panBy, pinch, toScreen, toWorld, zoomAt } from "./camera.ts"
 import { InputBox } from "./InputBox.tsx"
 import { RootView } from "./NodeView.tsx"
+import { DebugPanel } from "./DebugPanel.tsx"
 import { buildTree } from "./tree.ts"
+
+const DEBUG = new URLSearchParams(location.search).has("debug")
 
 const CLICK_SLOP = 4
 
@@ -229,6 +232,7 @@ export function Board({ roomId, identity }: { roomId: string; identity: Identity
         onCommit={() => send(new Commit())}
         onDiscard={() => send(new Discard())}
       />
+      {DEBUG && <DebugPanel pieces={(state.selfId && state.debug.get(state.selfId)) || []} />}
       <TopBar roomId={roomId} users={[...state.users.values()]} selfId={state.selfId} status={state.status} />
     </div>
   )
