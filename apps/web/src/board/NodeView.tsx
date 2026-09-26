@@ -86,6 +86,7 @@ function Frame(props: { node: BoardNode; draft: boolean; root?: boolean; childre
   const { node, draft, root } = props
   return (
     <div
+      data-node-id={node.id}
       className={
         root
           ? "rounded-2xl bg-[var(--panel)] p-3 shadow-[0_1px_2px_rgba(0,0,0,0.04),0_8px_24px_-12px_rgba(0,0,0,0.14)]"

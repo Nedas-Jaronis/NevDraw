@@ -1,4 +1,5 @@
 import {
+  type BoardEdge,
   type BoardNode,
   CursorMoved,
   type Draft,
@@ -29,6 +30,7 @@ type Room = {
   clients: Map<string, Client>
   /** Committed layer (mirrors the store). */
   nodes: Map<string, BoardNode>
+  edges: Map<string, BoardEdge>
   /** Draft layer: one per typing user, never persisted. */
   drafts: Map<string, Draft>
   /** Which board id each of a user's draft keys became (server-only). */
@@ -85,9 +87,18 @@ export const RoomsLive = Layer.effect(
           yield* Deferred.await(existing.ready)
           return existing
         }
-        const room: Room = { clients: new Map(), nodes: new Map(), drafts: new Map(), memory: new Map(), ready }
+        const room: Room = {
+          clients: new Map(),
+          nodes: new Map(),
+          edges: new Map(),
+          drafts: new Map(),
+          memory: new Map(),
+          ready,
+        }
         rooms.set(roomId, room)
-        for (const n of yield* store.load(roomId)) room.nodes.set(n.id, n)
+        const saved = yield* store.load(roomId)
+        for (const n of saved.nodes) room.nodes.set(n.id, n)
+        for (const e of saved.edges) room.edges.set(e.id, e)
         yield* Deferred.succeed(ready, undefined)
         return room
       })
@@ -104,6 +115,7 @@ export const RoomsLive = Layer.effect(
             selfId: user.id,
             users: [...room.clients.values()].map((c) => c.user),
             nodes: [...room.nodes.values()],
+            edges: [...room.edges.values()],
             drafts: [...room.drafts.values()],
           }),
         )
@@ -144,7 +156,7 @@ export const RoomsLive = Layer.effect(
               user: me,
               newId: () => crypto.randomUUID(),
             })
-            const draft: Draft = { userId: user.id, text, nodes: memory.nodes }
+            const draft: Draft = { userId: user.id, text, nodes: memory.nodes, edges: memory.edges }
             room.memory.set(user.id, memory)
             room.drafts.set(user.id, draft)
             return Effect.as(broadcast(room, new DraftUpdated({ draft, debug: r.debug })), r.missing)
@@ -186,8 +198,9 @@ export const RoomsLive = Layer.effect(
             room.drafts.delete(user.id)
             room.memory.delete(user.id)
             for (const n of draft.nodes) room.nodes.set(n.id, n)
-            yield* store.upsert(roomId, draft.nodes)
-            yield* broadcast(room, new NodesCommitted({ nodes: draft.nodes }))
+            for (const e of draft.edges) room.edges.set(e.id, e)
+            yield* store.upsert(roomId, draft.nodes, draft.edges)
+            yield* broadcast(room, new NodesCommitted({ nodes: draft.nodes, edges: draft.edges }))
             yield* broadcast(room, new DraftCleared({ userId: user.id }))
           }),
 
@@ -217,8 +230,11 @@ export const RoomsLive = Layer.effect(
                 for (const n of room.nodes.values()) if (n.parent === ids[i]) ids.push(n.id)
               }
               for (const d of ids) room.nodes.delete(d)
-              yield* store.remove(roomId, ids)
-              yield* broadcast(room, new NodesRemoved({ ids }))
+              const gone = new Set(ids)
+              const edgeIds = [...room.edges.values()].filter((e) => gone.has(e.from) || gone.has(e.to)).map((e) => e.id)
+              for (const e of edgeIds) room.edges.delete(e)
+              yield* store.remove(roomId, ids, edgeIds)
+              yield* broadcast(room, new NodesRemoved({ ids, edgeIds }))
             }),
 
           leave: Effect.gen(function* () {

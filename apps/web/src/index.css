@@ -9,6 +9,7 @@
   --panel-border: #e7e5e4;
   --surface: #f7f7f5;
   --hairline: rgba(28, 25, 23, 0.09);
+  --edge: #a8a29e;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -21,6 +22,7 @@
     --panel-border: #33312f;
     --surface: #262523;
     --hairline: rgba(245, 245, 244, 0.1);
+    --edge: #78716c;
   }
 }
 
