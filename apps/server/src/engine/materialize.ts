@@ -54,7 +54,32 @@ export function validateHandles(graph: EntryGraph, known: ReadonlySet<string>): 
     suggestions: graph.suggestions.filter((s) => known.has(s.handle)),
     patches: graph.patches
       .filter((p) => known.has(p.target))
+      .map((p) => (p.unlink === undefined || p.unlink === "*" || known.has(p.unlink) ? p : { ...p, unlink: undefined }))
       .map((p) => (p.parent === undefined || ok(p.parent) ? p : { ...p, parent: undefined })),
+  }
+}
+
+/** Media that may sit inside any element. */
+const EMBEDDABLE = new Set<string>(["image", "video", "chart", "map", "avatar"])
+
+/**
+ * Connecting isn't nesting: an element never goes inside something it has an
+ * arrow to, nor inside an element that can't hold children (the LLM
+ * sometimes answers "parent: @servers-stack" for "connect a cache to
+ * @servers-stack", which would swallow the new element).
+ */
+export function sensibleParents(graph: EntryGraph, board: BoardView): EntryGraph {
+  const local = new Map(graph.nodes.map((n) => [n.key, n.type]))
+  const typeOf = (k: string) => local.get(k) ?? board.byHandle.get(k)?.type
+  const linked = (a: string, b: string) => graph.edges.some((e) => (e.from === a && e.to === b) || (e.from === b && e.to === a))
+  return {
+    ...graph,
+    nodes: graph.nodes.map((n) => {
+      if (n.parent === null) return n
+      const pt = typeOf(n.parent)
+      const holds = pt !== undefined && (REGISTRY[pt].container || EMBEDDABLE.has(n.type))
+      return holds && !linked(n.key, n.parent) ? n : { ...n, parent: null }
+    }),
   }
 }
 
@@ -68,7 +93,7 @@ export function materialize(input: {
 }): DraftMemory {
   const { prev, anchor, user } = input
   const board = input.board ?? emptyBoard
-  const graph = validateHandles(input.graph, new Set(board.byHandle.keys()))
+  const graph = sensibleParents(validateHandles(input.graph, new Set(board.byHandle.keys())), board)
   const prevById = new Map(prev?.nodes.map((n) => [n.id, n]))
   const keyToId = new Map<string, string>()
   for (const [h, n] of board.byHandle) keyToId.set(h, n.id)
@@ -225,6 +250,8 @@ export function materialize(input: {
       ...(p.type ? { type: p.type } : {}),
       ...(p.color && /^#[0-9a-f]{6}$/i.test(p.color) ? { color: p.color.toLowerCase() } : {}),
       ...(validParent ? { parent: validParent } : {}),
+      ...(p.detach && target.parent !== null ? { detach: true } : {}),
+      ...(p.unlink === "*" ? { unlink: "*" } : p.unlink && board.byHandle.get(p.unlink) ? { unlink: board.byHandle.get(p.unlink)!.id } : {}),
     }
     if (Object.keys(patch).length > 1) patches.push(patch)
   }

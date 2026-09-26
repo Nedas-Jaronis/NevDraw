@@ -253,3 +253,38 @@ test("explicit @-commands (edit / wrap / include) are deterministic: the LLM isn
   expect(r.calls.slice(before)).toEqual([]) // no refine for the command
   expect(up.nodes.find((n) => n.id === timer!.id)).toMatchObject({ type: "timer", props: { color: "#e03131" } })
 })
+
+describe("an LLM answer that only lists changes never wipes the draft", () => {
+  const instant = {
+    nodes: [
+      { key: "p0", type: "service" as const, label: "Checkout service", parent: null, props: {} },
+      { key: "p1", type: "external-api" as const, label: "Stripe", parent: null, props: {} },
+      { key: "p2", type: "external-api" as const, label: "Then it emails the user via sendgrid", parent: null, props: {} },
+    ],
+    edges: [{ from: "p0", to: "p1", kind: "calls" as const }],
+    suggestions: [],
+    patches: [],
+  }
+  test("an empty answer keeps the instant graph", async () => {
+    const { completeFromInstant } = await import("../src/engine/index.ts")
+    expect(completeFromInstant({ nodes: [], edges: [], suggestions: [], patches: [] }, instant)).toEqual(instant)
+  })
+  test("arrows between draft keys bring their nodes, with the model's fixes applied", async () => {
+    const { completeFromInstant } = await import("../src/engine/index.ts")
+    const g = completeFromInstant(
+      {
+        nodes: [],
+        edges: [
+          { from: "p0", to: "p1", kind: "calls" },
+          { from: "p0", to: "p2", kind: "calls" },
+        ],
+        suggestions: [],
+        patches: [{ target: "p2", label: "Sendgrid" }],
+      },
+      instant,
+    )
+    expect(g.nodes.map((n) => n.label)).toEqual(["Checkout service", "Stripe", "Sendgrid"])
+    expect(g.edges).toHaveLength(2)
+    expect(g.patches).toEqual([])
+  })
+})

@@ -64,7 +64,13 @@ export class DropImage extends Schema.TaggedClass<DropImage>()("DropImage", {
   src: Schema.String,
 }) {}
 
-export const ClientMessage = Schema.Union(Join, MoveCursor, SetInput, Commit, Discard, MoveNode, DeleteNode, SetImage, DropImage)
+/** Retag an element: give it a new @handle (people fix tags themselves). */
+export class RenameHandle extends Schema.TaggedClass<RenameHandle>()("RenameHandle", {
+  id: Schema.String,
+  handle: Schema.String,
+}) {}
+
+export const ClientMessage = Schema.Union(Join, MoveCursor, SetInput, Commit, Discard, MoveNode, DeleteNode, SetImage, DropImage, RenameHandle)
 export type ClientMessage = typeof ClientMessage.Type
 
 // ---------------------------------------------------------------------------

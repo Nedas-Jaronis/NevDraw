@@ -44,6 +44,33 @@ export function editOf(text: string, known: ReadonlySet<string>): EntryPatch | n
   return { target, ...(label ? { label } : {}), ...(type ? { type } : {}), ...(color ? { color } : {}) }
 }
 
+/** Taking something apart: out of its container, or off an arrow. */
+const DETACH =
+  /\b(?:detach|un-?attach|disconnect|unlink|unhook|unwire|decouple|separate|remove\s+(?:the\s+)?(?:arrows?|links?|connections?|edges?)|delete\s+(?:the\s+)?(?:arrows?|links?|connections?|edges?)|(?:take|move|pull|get|drag)\b.*\bout\s+of|no\s+longer\s+(?:connected|linked|attached))\b/i
+const OUT_OF = /\bout\s+of\b|\b(?:ungroup|unnest)\b/i
+
+/**
+ * "detach @a from @b", "unattach @a", "disconnect @a and @b", "take @a out of
+ * @b", "remove the arrow between @a and @b": @a leaves @b if it's inside it,
+ * otherwise the arrows between them go. With one handle: out of its container
+ * if it has one, else all its arrows.
+ */
+export function detachOf(text: string, handles: HandleInfo): EntryPatch[] | null {
+  if (!DETACH.test(text)) return null
+  const named = [...new Set([...text.matchAll(HANDLE)].map((m) => m[0].toLowerCase()).filter((h) => handles.has(h)))]
+  const [a, b] = named
+  if (!a || named.length > 2) return null
+  const parentOf = (h: string) => handles.get(h)?.parent ?? null
+  const outOf = OUT_OF.test(text)
+  if (b) {
+    if (parentOf(a) === b) return [{ target: a, detach: true }]
+    if (parentOf(b) === a) return [{ target: b, detach: true }]
+    return outOf ? null : [{ target: a, unlink: b }]
+  }
+  if (parentOf(a)) return [{ target: a, detach: true }]
+  return outOf ? null : [{ target: a, unlink: "*" }]
+}
+
 /** Words that mean "every element" rather than a type. */
 const GENERIC = /^(instances?|elements?|components?|boxes?|nodes?|things?|items?|modals?|blocks?|parts?|pieces?|of|the|them|it|on|in|board|canvas|this|here|to|be|into|colou?r)$/i
 const ALL = /\b(all|every|each|everything|entire|whole)\b/i
@@ -57,8 +84,18 @@ const SHADE = /\b(light|dark|deep|pale|soft|bright|neon|vivid|muted|dusty|baby|h
  * word narrows it ("servers" → services); "them" means the recent elements.
  */
 export function bulkEditOf(text: string, handles: HandleInfo, recent: readonly string[]): EntryPatch[] | null {
-  if (/@[a-z0-9]/i.test(text)) return null
-  const all = ALL.test(text)
+  // "all servers inside @servers-stack": only what's inside that container.
+  const scopeRe = /\b(?:in|inside|within|of|under|in\s+side)\s+(?:the\s+)?(@[a-z0-9][a-z0-9-]*)/gi
+  const scopes = [...text.matchAll(scopeRe)].map((m) => m[1]!.toLowerCase())
+  const rest = text.replace(scopeRe, " ")
+  if (/@[a-z0-9]/i.test(rest) || scopes.length > 1 || (scopes[0] && !handles.has(scopes[0]))) return null
+  const scope = scopes[0]
+  const inside = (h: string) => {
+    for (let p = handles.get(h)?.parent ?? null, hops = 0; p && hops < 64; p = handles.get(p)?.parent ?? null, hops++) if (p === scope) return true
+    return false
+  }
+  text = rest
+  const all = ALL.test(text) || (scope !== undefined && /\b[a-z]+s\b/i.test(text))
   const them = !all && THEM.test(text)
   if (!all && !them) return null
   const color = explicitColor(text)
@@ -80,7 +117,9 @@ export function bulkEditOf(text: string, handles: HandleInfo, recent: readonly s
     types.add(t)
   }
 
-  const targets = them ? recent.filter((h) => handles.has(h)) : [...handles.keys()]
+  const targets = scope ? [...handles.keys()].filter(inside) : them ? recent.filter((h) => handles.has(h)) : [...handles.keys()]
   const picked = targets.filter((h) => types.size === 0 || types.has(handles.get(h)!.type!))
+  // Scoped to a container: never falls through to recoloring the container itself.
+  if (scope) return picked.map((target) => ({ target, color }))
   return picked.length ? picked.map((target) => ({ target, color })) : null
 }

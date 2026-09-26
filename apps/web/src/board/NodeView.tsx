@@ -166,6 +166,21 @@ function Body({ item, tree, compact = false }: { item: Item; tree: Tree; compact
   if (!isContainer(node)) {
     // Leaves can hold embedded media ("an image in the hero") under their own body.
     const embedded = tree.children.get(node.id) ?? []
+    // A hero with a picture embedded in it is that picture: no placeholder headline or "Get started".
+    if (node.type === "hero" && embedded.some((k) => k.node.type === "image")) {
+      return (
+        <div>
+          <Title node={node} showAuthor={showAuthor} compact={compact} />
+          <div className="mt-2.5 flex flex-col gap-2">
+            <AnimatePresence initial={false}>
+              {embedded.map((k) => (
+                <ChildView key={k.node.id} item={k} tree={tree} compact={false} />
+              ))}
+            </AnimatePresence>
+          </div>
+        </div>
+      )
+    }
     return (
       <div>
         <Wire node={node} showAuthor={showAuthor} compact={compact} draft={draft} />
@@ -207,12 +222,54 @@ function Body({ item, tree, compact = false }: { item: Item; tree: Tree; compact
 const squash = (s: string) => s.toLowerCase().replace(/[^a-z]/g, "")
 const typeTag = (n: BoardNode) => (n.type === "box" || squash(n.label).includes(squash(n.type)) ? null : n.type.replace("-", " "))
 
+/** The @handle: click it to retag the element (Enter saves, Esc cancels). */
+function HandleTag({ id, handle }: { id: string; handle: string }) {
+  const actions = useContext(BoardActions)
+  const [editing, setEditing] = useState<string | null>(null)
+  if (editing === null)
+    return (
+      <button
+        type="button"
+        data-ui
+        title="Rename this tag"
+        onClick={(e) => {
+          e.stopPropagation()
+          if (actions) setEditing(handle)
+        }}
+        className="frame-handle shrink-0 rounded px-0.5 text-[11px] text-[var(--muted)] hover:bg-[var(--ink)]/5 hover:text-[var(--ink)]"
+      >
+        {handle}
+      </button>
+    )
+  const save = () => {
+    if (editing.trim() && editing.trim() !== handle) actions?.renameHandle(id, editing)
+    setEditing(null)
+  }
+  return (
+    <input
+      data-ui
+      autoFocus
+      value={editing}
+      aria-label="New tag"
+      onChange={(e) => setEditing(e.target.value.startsWith("@") ? e.target.value : `@${e.target.value}`)}
+      onPointerDown={(e) => e.stopPropagation()}
+      onKeyDown={(e) => {
+        e.stopPropagation()
+        if (e.key === "Enter") save()
+        else if (e.key === "Escape") setEditing(null)
+      }}
+      onBlur={save}
+      className="frame-handle is-editing w-32 shrink-0 rounded border border-[var(--hairline)] bg-[var(--panel)] px-1 text-[11px] text-[var(--ink)] outline-none"
+    />
+  )
+}
+
 export function Title({ node, showAuthor, compact }: { node: BoardNode; showAuthor: boolean; compact?: boolean }) {
   const tag = compact ? null : typeTag(node)
   return (
     <div className="frame-title flex items-center gap-2">
       <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{node.label}</span>
-      {node.handle && <span className="frame-handle shrink-0 text-[11px] text-[var(--muted)]">{node.handle}</span>}
+      {node.handle && <HandleTag id={node.id} handle={node.handle} />}
       {tag && <span className="frame-type shrink-0 text-[10px] uppercase tracking-wider text-[var(--muted)]">{tag}</span>}
       {showAuthor && <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: node.authorColor }} />}
     </div>

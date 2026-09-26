@@ -65,6 +65,10 @@ export const NodePatch = Schema.Struct({
   color: Schema.optional(Schema.String),
   /** New parent id (a draft container or a committed one). */
   parent: Schema.optional(Schema.String),
+  /** Move out of its container to the top level. */
+  detach: Schema.optional(Schema.Boolean),
+  /** Remove the arrows between it and this node id ("*": all its arrows). */
+  unlink: Schema.optional(Schema.String),
 })
 export type NodePatch = typeof NodePatch.Type
 

@@ -8,6 +8,7 @@ import {
   MoveNode,
   NodesUpdated,
   type Point,
+  RenameHandle,
   SetImage,
   SetInput,
   type User,
@@ -91,6 +92,7 @@ export function Board({ roomId, identity }: { roomId: string; identity: Identity
     () => ({
       setImage: (id: string, src: string | null) => send(new SetImage({ id, src })),
       dropImage: (parent: string, src: string) => send(new DropImage({ parent, src })),
+      renameHandle: (id: string, handle: string) => send(new RenameHandle({ id, handle })),
     }),
     [send],
   )

@@ -1,6 +1,7 @@
-import { Commit, Join, SetInput } from "@rtw/shared"
+import { Commit, Join, RenameHandle, SetInput } from "@rtw/shared"
 import { afterEach, describe, expect, test } from "bun:test"
-import { editOf } from "../src/engine/edits.ts"
+import { bulkEditOf, detachOf, editOf } from "../src/engine/edits.ts"
+import { sensibleParents } from "../src/engine/materialize.ts"
 import { interpretOffline } from "../src/engine/index.ts"
 import { is, startServer, TestClient } from "./helpers.ts"
 
@@ -209,4 +210,97 @@ describe("embedding media in the element you name", () => {
     expect(where("a button in the hero area")).toEqual(["button<null"])
     expect(where("an image in the footer")).toEqual(["image<null"])
   })
+})
+
+describe("taking things apart", () => {
+  const h = new Map<string, { container: boolean; parent?: string | null }>([
+    ["@stack", { container: true, parent: null }],
+    ["@server-1", { container: false, parent: "@stack" }],
+    ["@lb", { container: false, parent: null }],
+  ])
+  test.each([
+    ["detach @server-1 from @stack", [{ target: "@server-1", detach: true }]],
+    ["take @server-1 out of @stack", [{ target: "@server-1", detach: true }]],
+    ["unattach @server-1", [{ target: "@server-1", detach: true }]],
+    ["disconnect @lb from @server-1", [{ target: "@lb", unlink: "@server-1" }]],
+    ["remove the arrow between @lb and @stack", [{ target: "@lb", unlink: "@stack" }]],
+    ["unlink @lb", [{ target: "@lb", unlink: "*" }]],
+  ] as const)("%p", (text, patches) => {
+    expect(detachOf(text, h)).toEqual(patches as never)
+  })
+  test("not a detach", () => {
+    expect(detachOf("connect @lb to @stack", h)).toBeNull()
+    expect(detachOf("take @lb out of @stack", h)).toBeNull()
+  })
+})
+
+test("'all servers inside @stack' recolors what's inside, never the stack", () => {
+  const h = new Map<string, { container: boolean; type?: never; parent?: string | null }>([
+    ["@stack", { container: true, type: "section" as never, parent: null }],
+    ["@server-1", { container: false, type: "service" as never, parent: "@stack" }],
+    ["@server-2", { container: false, type: "service" as never, parent: "@stack" }],
+    ["@api", { container: false, type: "service" as never, parent: null }],
+  ])
+  expect(bulkEditOf("turn all servers inside the @stack to blue", h, [])).toEqual([
+    { target: "@server-1", color: "#1c7ed6" },
+    { target: "@server-2", color: "#1c7ed6" },
+  ])
+})
+
+test("connecting is never nesting: an element with an arrow to its parent goes top-level", () => {
+  const board = { byHandle: new Map([["@stack", { id: "s", type: "section" } as never], ["@api", { id: "a", type: "service" } as never]]), byId: new Map() }
+  const g = sensibleParents(
+    {
+      nodes: [
+        { key: "n1", type: "cache", label: "Cache", parent: "@stack", props: {} },
+        { key: "n2", type: "cache", label: "Cache 2", parent: "@api", props: {} },
+        { key: "n3", type: "service", label: "Server 6", parent: "@stack", props: {} },
+      ],
+      edges: [{ from: "n1", to: "@stack", kind: "calls" }],
+      suggestions: [],
+      patches: [],
+    },
+    board,
+  )
+  expect(g.nodes.map((n) => n.parent)).toEqual([null, null, "@stack"])
+})
+
+test("detach over the protocol: out of the container, and arrows removed", async () => {
+  const c = await room()
+  c.send(new SetInput({ text: "a signup form with an email input", anchor }))
+  c.send(new Commit())
+  const made = (await c.waitFor(is("NodesCommitted"))).nodes
+  const section = made.find((n) => n.type === "form")!
+  const child = made.find((n) => n.parent === section.id)!
+  c.send(new SetInput({ text: `detach ${child.handle} from ${section.handle}`, anchor }))
+  await c.waitFor(is("DraftUpdated", (m) => m.draft.text.startsWith("detach")))
+  c.send(new Commit())
+  const up = await c.waitFor(is("NodesUpdated", (m) => m.nodes.some((n) => n.id === child.id && n.parent === null)))
+  expect(up.nodes.find((n) => n.id === child.id)!.parent).toBeNull()
+
+  c.send(new SetInput({ text: `a cache connected to ${child.handle}`, anchor }))
+  c.send(new Commit())
+  const linked = await c.waitFor(is("NodesCommitted", (m) => m.edges.length > 0))
+  c.send(new SetInput({ text: `disconnect ${child.handle} from @cache`, anchor }))
+  await c.waitFor(is("DraftUpdated", (m) => m.draft.text.startsWith("disconnect")))
+  c.send(new Commit())
+  const removed = await c.waitFor(is("NodesRemoved"))
+  expect(removed.edgeIds).toEqual(linked.edges.map((e) => e.id))
+})
+
+test("retagging: click a tag, type a new one; taken or empty tags are ignored", async () => {
+  const c = await room()
+  c.send(new SetInput({ text: "a login form. a pricing table", anchor }))
+  c.send(new Commit())
+  const [form, table] = (await c.waitFor(is("NodesCommitted"))).nodes.filter((n) => n.parent === null)
+  c.send(new RenameHandle({ id: form!.id, handle: "@Sign In form!" }))
+  const up = await c.waitFor(is("NodesUpdated", (m) => m.nodes.some((n) => n.id === form!.id)))
+  expect(up.nodes[0]!.handle).toBe("@sign-in-form")
+  c.send(new RenameHandle({ id: table!.id, handle: "sign-in-form" }))
+  await Bun.sleep(100)
+  expect(c.received.filter(is("NodesUpdated", (m) => m.nodes.some((n) => n.id === table!.id)))).toEqual([])
+  // The new tag is what references use from now on.
+  c.send(new SetInput({ text: "make @sign-in-form red", anchor }))
+  const d = await c.waitFor(is("DraftUpdated", (m) => m.draft.text.startsWith("make")))
+  expect(d.draft.patches).toEqual([{ id: form!.id, color: "#e03131" }])
 })

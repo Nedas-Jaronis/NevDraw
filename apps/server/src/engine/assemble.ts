@@ -100,7 +100,7 @@ function cleanLabel(text: string, repeated: boolean): string {
  * name used twice in one entry is the same element.
  */
 /** What the assembler may know about committed @handles. */
-export type HandleInfo = ReadonlyMap<string, { container: boolean; type?: NodeType; label?: string }>
+export type HandleInfo = ReadonlyMap<string, { container: boolean; type?: NodeType; label?: string; /** The container's @handle. */ parent?: string | null }>
 
 /** Media that can sit inside any element ("embed an image in the hero"). */
 const EMBEDDABLE = new Set<NodeType>(["image", "video", "chart", "map", "avatar"])
@@ -303,14 +303,21 @@ export function assemble(
     // Arrow targets are separate elements, never nested.
     if (!edge && piece.connector !== "start" && prev) {
       const nest = piece.connector === "with" || a.childOfContainer >= YES
-      parent = nest && prev.container ? prev.key : prev.parent
+      // Media right after an element sits inside it ("a hero with an image"), container or not.
+      const holds = prev.container || (piece.connector === "with" && EMBEDDABLE.has(a.nodeType.value))
+      parent = nest && holds ? prev.key : prev.parent
     }
     // "add a form to @landing-page": into a known container; media ("embed an image in @hero")
     // can sit inside any element.
     if (piece.into && (handles.get(piece.into)?.container || EMBEDDABLE.has(a.nodeType.value))) parent = piece.into
     else if (!piece.into && !edge) {
-      const named = namedTarget(piece.text, handles)
-      if (named && (handles.get(named.handle)?.container || EMBEDDABLE.has(a.nodeType.value))) {
+      // Elements of this same entry come first: "a hero … an image inside the hero" means this hero.
+      const scope: HandleInfo = new Map([
+        ...nodes.map((n) => [n.key, { container: REGISTRY[n.type].container, type: n.type, label: n.label }] as const),
+        ...handles,
+      ])
+      const named = namedTarget(piece.text, scope)
+      if (named && (scope.get(named.handle)?.container || EMBEDDABLE.has(a.nodeType.value))) {
         parent = named.handle
         namedRest = named.rest
       }
