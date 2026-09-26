@@ -7,8 +7,6 @@
     "start": "bun --env-file=../../.env src/main.ts"
   },
   "dependencies": {
-    "@effect/ai": "0.37.0",
-    "@effect/ai-google": "0.16.0",
     "@effect/platform": "^0.97.2",
     "@effect/platform-bun": "^0.91.2",
     "@effect/sql": "0.52.1",

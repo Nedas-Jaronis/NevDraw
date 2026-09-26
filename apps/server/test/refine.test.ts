@@ -6,7 +6,7 @@ import { Commit, Join, SetInput } from "@rtw/shared"
 import { afterEach, describe, expect, test } from "bun:test"
 import { Effect, Layer } from "effect"
 import { fromLlm, type LlmGraph, SYSTEM, userPrompt } from "../src/refine/prompt.ts"
-import { gemini, openAiCompatible, RefineError, Refiner, withFallback } from "../src/refine/Refiner.ts"
+import { openAiCompatible, RefineError, Refiner } from "../src/refine/Refiner.ts"
 import { is, startServer, TestClient } from "./helpers.ts"
 
 const llmGraph: LlmGraph = {
@@ -131,35 +131,6 @@ describe("providers against mock HTTP servers", () => {
     expect(err.reason).toContain("bad JSON")
   })
 
-  test("Gemini through @effect/ai-google: sends a response schema and decodes the object", async () => {
-    let seen: any = null
-    const srv = Bun.serve({
-      port: 0,
-      fetch: async (req) => {
-        seen = { url: new URL(req.url).pathname, key: req.headers.get("x-goog-api-key"), body: await req.json() }
-        return Response.json({
-          candidates: [{ content: { role: "model", parts: [{ text: JSON.stringify(llmGraph) }] }, finishReason: "STOP", index: 0 }],
-          usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 10, totalTokenCount: 20 },
-          modelVersion: "gemini-2.5-flash",
-        })
-      },
-    })
-    servers.push(srv)
-    const impl = gemini("g-123456789012", "gemini-2.5-flash", `http://localhost:${srv.port}`)
-    const g = await Effect.runPromise(impl.refine(input))
-    expect(seen.url).toContain("gemini-2.5-flash:generateContent")
-    expect(seen.key).toBe("g-123456789012")
-    expect(seen.body.generationConfig.responseMimeType).toBe("application/json")
-    expect(seen.body.generationConfig.responseSchema).toBeTruthy()
-    expect(g.nodes.map((n) => n.label)).toEqual(["Checkout", "Stripe", "Email queue"])
-  })
-
-  test("fallback: when the primary fails, the secondary answers", async () => {
-    const failing = { enabled: true, name: "a", refine: () => Effect.fail(new RefineError({ provider: "a", reason: "down" })) }
-    const working = { enabled: true, name: "b", refine: () => Effect.succeed(fromLlm(llmGraph)) }
-    const g = await Effect.runPromise(withFallback(failing, working).refine(input))
-    expect(g.nodes).toHaveLength(3)
-  })
 })
 
 // ---------------------------------------------------------------------------

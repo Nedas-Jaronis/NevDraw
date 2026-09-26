@@ -8,7 +8,7 @@ Requires [Bun](https://bun.sh) 1.2+.
 
 ```bash
 bun install
-cp .env.example .env   # optional: add Jev / Gemini / gpt-oss keys
+cp .env.example .env   # optional: add Jev / gpt-oss keys
 bun dev          # web on http://localhost:3000, Effect server on :3001 (/ws forwarded)
 ```
 
@@ -21,10 +21,10 @@ cloudflared tunnel --url http://localhost:3000    # share the printed https://*.
 
 ## Keys and tuning
 
-All keys are optional and live in `.env` (see `.env.example`): `TYPESAFE_API_KEY` (Jev: instant drafts), `GEMINI_API_KEY` and/or `GPTOSS_API_KEY` (LLM cleanup pass). Without them the board runs on the built-in keyword classifier.
+All keys are optional and live in `.env` (see `.env.example`): `TYPESAFE_API_KEY` (Jev: instant drafts), `GPTOSS_API_KEY` (LLM cleanup pass: gpt-oss-120b, Cerebras by default). Without them the board runs on the built-in keyword classifier.
 
 ```bash
-bun run probe     # measures real Jev / Gemini / gpt-oss latency with your keys and prints tuning values
+bun run probe     # measures real Jev / gpt-oss latency with your keys and prints tuning values
 ```
 
 ## Develop

@@ -1,5 +1,5 @@
 /**
- * bun run probe: measure real latency of the services the draft engine uses,
+ * bun run probe: measure real latency of Jev and the gpt-oss cleanup model,
  * with whichever keys are in .env, and print recommended tuning values.
  * Missing keys are skipped, never fatal.
  */
@@ -8,7 +8,7 @@ import { Jev, JevFromEnv, looksLikeKey, type PieceState } from "../src/classify/
 import { pieceStates } from "../src/engine/index.ts"
 import { split } from "../src/engine/split.ts"
 import { env, envNumber } from "../src/env.ts"
-import { DEFAULT_GEMINI_MODEL, gemini, openAiCompatible } from "../src/refine/Refiner.ts"
+import { openAiCompatible } from "../src/refine/Refiner.ts"
 
 const RUNS = envNumber("PROBE_RUNS") ?? 5
 const ENTRY = "landing page with navbar, hero, three pricing cards in a row and signup form. signup form posts to api server which writes to postgres"
@@ -81,9 +81,6 @@ const llmInput = {
   draft: [],
 }
 const llms = [
-  looksLikeKey(env("GEMINI_API_KEY"))
-    ? gemini(env("GEMINI_API_KEY")!, env("GEMINI_MODEL") ?? DEFAULT_GEMINI_MODEL)
-    : { name: "gemini", skip: "no GEMINI_API_KEY in .env" },
   looksLikeKey(env("GPTOSS_API_KEY"))
     ? openAiCompatible({
         baseUrl: env("GPTOSS_BASE_URL") ?? "https://api.cerebras.ai/v1",
