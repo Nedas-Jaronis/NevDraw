@@ -45,3 +45,16 @@ body {
   background-image: radial-gradient(var(--board-dot) 1px, transparent 1px);
   background-size: 22px 22px;
 }
+
+/* An element's @handle shows on hover (innermost element only) or when selected, in place of its type tag. */
+.frame-handle {
+  display: none;
+}
+.frame:hover:not(:has(.frame:hover)) > * > .frame-title .frame-handle,
+.frame.is-selected > * > .frame-title .frame-handle {
+  display: inline;
+}
+.frame:hover:not(:has(.frame:hover)) > * > .frame-title .frame-type,
+.frame.is-selected > * > .frame-title .frame-type {
+  display: none;
+}

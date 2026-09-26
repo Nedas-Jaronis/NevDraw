@@ -1,4 +1,4 @@
-import type { EntryEdge, EntryGraph, EntryNode } from "@rtw/shared"
+import { type EntryEdge, type EntryGraph, type EntryNode, REGISTRY } from "@rtw/shared"
 import { labelFrom } from "../classify/keywords.ts"
 import type { PieceAnswers } from "./answers.ts"
 import type { Piece } from "./split.ts"
@@ -27,9 +27,11 @@ function pluralLabel(label: string) {
 
 /** A label without counts or layout phrases, singular when repeated. */
 function cleanLabel(text: string, repeated: boolean): string {
-  let t = text.replace(COUNT, "").replace(LAYOUT_WORDS, " ").replace(/\s+/g, " ").trim()
+  // An unknown "@thing" is just text: the server never invents references.
+  const plain = text.startsWith("@") ? text.slice(1).replace(/-/g, " ") : text
+  let t = plain.replace(COUNT, "").replace(LAYOUT_WORDS, " ").replace(/\s+/g, " ").trim()
   if (repeated) t = t.replace(/(\w{3,}[^s])s$/i, "$1")
-  return labelFrom(t || text)
+  return labelFrom(t || plain)
 }
 
 /**
@@ -45,7 +47,12 @@ function cleanLabel(text: string, repeated: boolean): string {
  * Relation verbs make arrows; arrow targets are top-level elements, and a
  * name used twice in one entry is the same element.
  */
-export function assemble(pieces: readonly Piece[], answers: readonly PieceAnswers[]): EntryGraph {
+/** What the assembler may know about committed @handles. */
+export type HandleInfo = ReadonlyMap<string, { container: boolean }>
+
+const HANDLE_ONLY = /^@[a-z0-9][a-z0-9-]*$/i
+
+export function assemble(pieces: readonly Piece[], answers: readonly PieceAnswers[], handles: HandleInfo = new Map()): EntryGraph {
   const nodes: MutableNode[] = []
   const edges: EntryEdge[] = []
   const byKey = new Map<string, MutableNode>()
@@ -66,6 +73,15 @@ export function assemble(pieces: readonly Piece[], answers: readonly PieceAnswer
     const container = a.isContainer >= YES
     const edge = piece.connector === "edge" ? piece.edge : undefined
 
+    // "@postgres": a reference to a committed element, not a new one.
+    const ref = HANDLE_ONLY.test(piece.text) ? piece.text.toLowerCase() : null
+    if (ref && handles.has(ref)) {
+      keyOfPiece.set(piece.index, ref)
+      if (edge) addEdge(keyOfPiece.get(edge.from), ref, edge.kind)
+      prev = { key: ref, parent: null, container: handles.get(ref)!.container }
+      return
+    }
+
     // A name already used in this entry refers to the same element.
     const sameName = byLabel.get(cleanLabel(piece.text, false).toLowerCase())
     if (sameName && countOf(piece.text) === 1) {
@@ -82,6 +98,10 @@ export function assemble(pieces: readonly Piece[], answers: readonly PieceAnswer
       const nest = piece.connector === "with" || a.childOfContainer >= YES
       parent = nest && prev.container ? prev.key : prev.parent
     }
+    // "add a form to @landing-page" (only into a known container).
+    if (piece.into && handles.get(piece.into)?.container) parent = piece.into
+    // Services, databases, queues… are system pieces, never parts of a page.
+    if (REGISTRY[a.nodeType.value].lane === "architecture") parent = null
 
     const count = countOf(piece.text)
     const key = `p${piece.index}`

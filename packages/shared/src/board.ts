@@ -12,6 +12,8 @@ export type NodeProps = typeof NodeProps.Type
  */
 export const BoardNode = Schema.Struct({
   id: Schema.String,
+  /** Readable, unique, permanent name for @-references (committed nodes only). */
+  handle: Schema.optional(Schema.String),
   type: NodeType,
   label: Schema.String,
   /** Parent node id, or null for top-level. */

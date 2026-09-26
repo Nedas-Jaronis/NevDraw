@@ -29,16 +29,44 @@ const edgeKey = (e: { from: string; to: string; kind: string }) => `${e.from}>${
  * - keys missing from the new graph disappear (they fade out client-side).
  * `@handle` parents and endpoints are resolved by #9; until then they're dropped.
  */
+/** The committed board, as far as materialize needs it. */
+export type BoardView = {
+  readonly byHandle: ReadonlyMap<string, BoardNode>
+  readonly byId: ReadonlyMap<string, BoardNode>
+}
+
+export const emptyBoard: BoardView = { byHandle: new Map(), byId: new Map() }
+
+const isHandle = (k: string) => k.startsWith("@")
+
+/**
+ * The server never trusts a reference: parents and arrow ends that name an
+ * @handle not on the committed board are dropped (the node becomes top-level,
+ * the arrow disappears), as are suggestions for unknown handles.
+ */
+export function validateHandles(graph: EntryGraph, known: ReadonlySet<string>): EntryGraph {
+  const ok = (k: string | null) => k === null || !isHandle(k) || known.has(k)
+  return {
+    nodes: graph.nodes.map((n) => (ok(n.parent) ? n : { ...n, parent: null })),
+    edges: graph.edges.filter((e) => ok(e.from) && ok(e.to)),
+    suggestions: graph.suggestions.filter((s) => known.has(s.handle)),
+  }
+}
+
 export function materialize(input: {
   graph: EntryGraph
   prev: DraftMemory | undefined
   anchor: Point
   user: User
   newId: () => string
+  board?: BoardView
 }): DraftMemory {
-  const { graph, prev, anchor, user } = input
+  const { prev, anchor, user } = input
+  const board = input.board ?? emptyBoard
+  const graph = validateHandles(input.graph, new Set(board.byHandle.keys()))
   const prevById = new Map(prev?.nodes.map((n) => [n.id, n]))
   const keyToId = new Map<string, string>()
+  for (const [h, n] of board.byHandle) keyToId.set(h, n.id)
   const idFor = (key: string) => prev?.keyToId.get(key) ?? input.newId()
   for (const n of graph.nodes) keyToId.set(n.key, idFor(n.key))
   for (const e of graph.edges) keyToId.set(edgeKey(e), idFor(edgeKey(e)))
@@ -51,8 +79,14 @@ export function materialize(input: {
   const placedById = new Map<string, BoardNode>()
   /** Nested elements have no coordinates of their own: use their top-level ancestor. */
   const rootOf = (n: BoardNode | undefined) => {
-    while (n && n.parent !== null) n = placedById.get(n.parent)
+    while (n && n.parent !== null) n = placedById.get(n.parent) ?? board.byId.get(n.parent)
     return n
+  }
+  const lookup = (key: string) => placed.get(key) ?? board.byHandle.get(key)
+  /** Draft children of a committed container go after its existing children. */
+  const committedChildren = new Map<string, number>()
+  for (const n of board.byId.values()) {
+    if (n.parent !== null) committedChildren.set(n.parent, Math.max(committedChildren.get(n.parent) ?? 0, n.order + 1))
   }
   const fanOut = new Map<string, number>()
   let nextX: number | null = null
@@ -61,14 +95,14 @@ export function materialize(input: {
   for (const n of graph.nodes) {
     const id = keyToId.get(n.key)!
     const parent = n.parent && keyToId.has(n.parent) ? keyToId.get(n.parent)! : null
-    const order = siblingOrder.get(parent) ?? 0
+    const order = siblingOrder.get(parent) ?? (parent ? (committedChildren.get(parent) ?? 0) : 0)
     siblingOrder.set(parent, order + 1)
 
     const before = prevById.get(id)
     let x = 0
     let y = 0
     if (parent === null) {
-      const source = incoming.has(n.key) ? rootOf(placed.get(incoming.get(n.key)!)) : undefined
+      const source = incoming.has(n.key) ? rootOf(lookup(incoming.get(n.key)!)) : undefined
       // Every target of a source takes a fan slot, including ones that already have a position.
       const fan = source ? (fanOut.get(source.id) ?? 0) : 0
       if (source) fanOut.set(source.id, fan + 1)
@@ -107,7 +141,7 @@ export function materialize(input: {
   for (const e of graph.edges) {
     const from = keyToId.get(e.from)
     const to = keyToId.get(e.to)
-    if (!from || !to || !placed.has(e.from) || !placed.has(e.to)) continue
+    if (!from || !to || !lookup(e.from) || !lookup(e.to)) continue
     edges.push({
       id: keyToId.get(edgeKey(e))!,
       from,

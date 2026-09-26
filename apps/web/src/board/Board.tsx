@@ -5,7 +5,7 @@ import type { Identity } from "../identity.ts"
 import { useRoom } from "../room/useRoom.ts"
 import { type Camera, panBy, pinch, toScreen, toWorld, zoomAt } from "./camera.ts"
 import { InputBox } from "./InputBox.tsx"
-import { RootView } from "./NodeView.tsx"
+import { HighlightContext, RootView } from "./NodeView.tsx"
 import { DebugPanel } from "./DebugPanel.tsx"
 import { EdgeLayer } from "./EdgeLayer.tsx"
 import { buildTree } from "./tree.ts"
@@ -44,6 +44,7 @@ export function Board({ roomId, identity }: { roomId: string; identity: Identity
   const cam = useRef(camera)
   cam.current = camera
   const [selected, setSelected] = useState<string | null>(null)
+  const [highlight, setHighlight] = useState<string | null>(null)
   const [dragPos, setDragPos] = useState<{ id: string; x: number; y: number } | null>(null)
   const dragRef = useRef(dragPos)
   dragRef.current = dragPos
@@ -54,6 +55,11 @@ export function Board({ roomId, identity }: { roomId: string; identity: Identity
   const queueCursor = useFrameThrottle((p: Point | null) => send(new MoveCursor({ cursor: p })))
   const queueMove = useFrameThrottle((m: { id: string; x: number; y: number }) => send(new MoveNode({ ...m, final: false })))
 
+  const handles = useMemo(
+    () =>
+      [...state.nodes.values()].flatMap((n) => (n.handle ? [{ handle: n.handle, label: n.label, type: n.type }] : [])),
+    [state.nodes],
+  )
   const others = [...state.users.values()].filter((u) => u.id !== state.selfId)
   const self = state.selfId ? state.users.get(state.selfId) : undefined
   const color = self?.color ?? identity.color
@@ -209,6 +215,7 @@ export function Board({ roomId, identity }: { roomId: string; identity: Identity
         style={{ transform: `translate(${camera.x}px, ${camera.y}px) scale(${camera.zoom})` }}
       >
         <EdgeLayer edges={tree.edges} camera={camera} />
+        <HighlightContext.Provider value={{ handle: highlight, color }}>
         <AnimatePresence>
           {tree.roots.map((item) => (
             <RootView
@@ -225,11 +232,14 @@ export function Board({ roomId, identity }: { roomId: string; identity: Identity
             />
           ))}
         </AnimatePresence>
+        </HighlightContext.Provider>
       </div>
       {others.map((u) => u.cursor && <RemoteCursor key={u.id} user={u} at={toScreen(camera, u.cursor)} />)}
       <ZoomControls zoom={camera.zoom} onZoom={(z) => setCamera((c) => zoomAt(c, window.innerWidth / 2, window.innerHeight / 2, z))} />
       <InputBox
         color={color}
+        handles={handles}
+        onHighlight={setHighlight}
         onChange={(text) => send(new SetInput({ text, anchor: anchor() }))}
         onCommit={() => send(new Commit())}
         onDiscard={() => send(new Discard())}
