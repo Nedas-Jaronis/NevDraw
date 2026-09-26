@@ -46,6 +46,8 @@ export function interpret(input: {
   text: string
   /** Committed @handles and whether each is a container. */
   handles: HandleInfo
+  /** What "them" means in "connect them": this person's most recent elements. */
+  recent?: readonly string[]
   peek: (s: PieceState) => PieceAnswers | undefined
   memory: ReadonlyMap<number, PieceMemory>
 }) {
@@ -54,8 +56,8 @@ export function interpret(input: {
   const memory = new Map<number, PieceMemory>()
   const missing: PieceState[] = []
   const answers = pieces.map((p, i) => {
-    const cached = input.peek(states[i]!)
-    if (!cached) missing.push(states[i]!)
+    const cached = p.text ? input.peek(states[i]!) : undefined
+    if (!cached && p.text) missing.push(states[i]!)
     const s = stabilize(input.memory.get(p.index), cached ?? keywordAnswers(p))
     memory.set(p.index, s.memory)
     return s.answers
@@ -66,5 +68,5 @@ export function interpret(input: {
     confidence: Math.round(answers[i]!.nodeType.confidence * 100) / 100,
     source: answers[i]!.source,
   }))
-  return { graph: assemble(pieces, answers, input.handles), memory, missing, debug, pieces }
+  return { graph: assemble(pieces, answers, input.handles, input.recent ?? []), memory, missing, debug, pieces }
 }

@@ -1,3 +1,4 @@
+import { NODE_TYPES, type NodeType, REGISTRY } from "@rtw/shared"
 import { choice, noul } from "@typesafe-ai/sdk"
 
 /**
@@ -13,29 +14,10 @@ import { choice, noul } from "@typesafe-ai/sdk"
  * nest in, and `handles` the @names already on the board.
  */
 export const pieceQuestions = {
-  nodeType: choice("Which wireframe or architecture element does `piece` describe", {
-    page: "A whole screen or page of an app or website, such as a landing page, dashboard or settings page",
-    section: "A region of a page that groups content, such as features, pricing, testimonials, footer or sidebar",
-    navbar: "A navigation bar, header or menu across the top of a page",
-    hero: "The large introductory banner at the top of a page with a headline and call to action",
-    form: "A form that collects input, such as sign up, log in, checkout or contact",
-    input: "A single input field, such as email, password or a search box",
-    button: "A single button or call-to-action link",
-    card: "A self-contained card or tile, such as a pricing card or profile card",
-    list: "A list or feed of repeated items",
-    table: "A table or grid of data with rows and columns",
-    image: "An image, logo, photo, avatar, illustration or video",
-    modal: "A dialog, modal, popup or drawer that appears over the page",
-    text: "A block of text, heading, paragraph or caption",
-    client: "The software a user runs: browser, web app, mobile app or frontend",
-    service: "A backend server, API, microservice, worker or function",
-    database: "A database that stores records, such as Postgres, MySQL or MongoDB",
-    cache: "A cache or CDN, such as Redis",
-    queue: "A message queue, event bus or stream, such as Kafka or SQS",
-    storage: "File or object storage, such as S3 or a bucket",
-    "external-api": "A third-party service called over the network, such as Stripe, Twilio or an AI API",
-    box: "Something else, or too unclear to tell yet",
-  }),
+  nodeType: choice(
+    "Which wireframe or architecture element does `piece` describe",
+    Object.fromEntries(NODE_TYPES.map((t) => [t, REGISTRY[t].describe])) as Record<NodeType, string>,
+  ),
 
   isContainer: noul("`piece` names something that holds other elements inside it, such as a page, section, form, card or dialog"),
 

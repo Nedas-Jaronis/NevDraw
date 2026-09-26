@@ -1,7 +1,7 @@
 import type { BoardEdge, BoardNode, EntryGraph, Point, User } from "@rtw/shared"
 import { REGISTRY } from "@rtw/shared"
 
-export const TOP_LEVEL_GAP = 40
+export const TOP_LEVEL_GAP = 96
 /** Horizontal room for an arrow between a source and its target. */
 export const ARROW_GAP = 140
 /** Vertical spacing when one source fans out to several targets. */

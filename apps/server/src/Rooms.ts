@@ -153,10 +153,10 @@ export const RoomsLive = Layer.effect(
     }
 
     const handleInfo = (room: Room): HandleInfo => {
-      const info = new Map<string, { container: boolean }>()
+      const info = new Map<string, { container: boolean; type: BoardNode["type"] }>()
       for (const [h, id] of room.handles) {
         const n = room.nodes.get(id)
-        if (n) info.set(h, { container: REGISTRY[n.type].container })
+        if (n) info.set(h, { container: REGISTRY[n.type].container, type: n.type })
       }
       return info
     }
@@ -244,6 +244,13 @@ export const RoomsLive = Layer.effect(
         let llmResult: { text: string; graph: EntryGraph } | null = null
         /** The instant (Jev/keyword) graph last shown, so the LLM can keep its keys. */
         let lastGraph: EntryGraph | null = null
+        /** Top-level handles of this person's recent commits, newest last: what "them" means. */
+        const recentCommits: string[][] = []
+        const recentHandles = () => {
+          const out: string[] = []
+          for (let i = recentCommits.length - 1; i >= 0 && out.length < 2; i--) out.unshift(...recentCommits[i]!)
+          return out.filter((h) => room.handles.has(h)).slice(-6)
+        }
         /** Link suggestions last sent to this typist (only they see them). */
         let lastSuggestions = "[]"
 
@@ -268,6 +275,7 @@ export const RoomsLive = Layer.effect(
           refiner.refine({
             text,
             board: boardSummary(room),
+            recent: recentHandles(),
             draft: (lastGraph?.nodes ?? []).map((n) => ({ key: n.key, type: n.type, label: n.label, parent: n.parent })),
           })
 
@@ -289,12 +297,18 @@ export const RoomsLive = Layer.effect(
           Effect.suspend(() => {
             const me = self()
             if (!me) return Effect.succeed([])
-            const r = interpret({ text, handles: handleInfo(room), peek: classifier.peek, memory: pieceMemory })
+            const r = interpret({
+              text,
+              handles: handleInfo(room),
+              recent: recentHandles(),
+              peek: classifier.peek,
+              memory: pieceMemory,
+            })
             pieceMemory = r.memory
             lastGraph = r.graph
             // The LLM's reading of this exact text wins over the instant one.
             const graph = llmResult?.text === text ? llmResult.graph : r.graph
-            if (graph.nodes.length === 0) return Effect.as(clearDraft, [])
+            if (graph.nodes.length === 0 && graph.edges.length === 0) return Effect.as(clearDraft, [])
             const prev = room.memory.get(user.id)
             const memory = placeNewRoots(
               room,
@@ -380,7 +394,8 @@ export const RoomsLive = Layer.effect(
             lastGraph = null
             yield* sendSuggestions([])
             const draft = room.drafts.get(user.id)
-            if (!draft || draft.nodes.length === 0) return
+            // An entry can be only arrows ("connect them together").
+            if (!draft || (draft.nodes.length === 0 && draft.edges.length === 0)) return
             // Elements this draft pushed aside stay where they were pushed.
             const committedNow = [...room.nodes.values()]
             const pushed = pushAside({
@@ -396,6 +411,8 @@ export const RoomsLive = Layer.effect(
             for (const n of draft.nodes) room.nodes.set(n.id, n)
             for (const e of draft.edges) room.edges.set(e.id, e)
             const committed = withHandles(room, draft.nodes)
+            const tops = committed.filter((n) => n.parent === null && n.handle).map((n) => n.handle!)
+            if (tops.length) recentCommits.push(tops)
             yield* store.upsert(roomId, [...moved, ...committed], draft.edges)
             if (moved.length) yield* broadcast(room, new NodesUpdated({ nodes: moved }))
             yield* broadcast(room, new NodesCommitted({ nodes: committed, edges: draft.edges }))

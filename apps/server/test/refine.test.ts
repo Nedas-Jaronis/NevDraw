@@ -43,7 +43,12 @@ describe("LLM wire format", () => {
 
   test("the prompt carries the text, the board's handles and the draft's keys", () => {
     const u = JSON.parse(userPrompt({ text: "x", board: [{ handle: "@db", type: "database", label: "Db", parent: null }], draft: [{ key: "p0", type: "box", label: "X", parent: null }] }))
-    expect(u).toEqual({ text: "x", board: [{ handle: "@db", type: "database", label: "Db", parent: null }], draft: [{ key: "p0", type: "box", label: "X", parent: null }] })
+    expect(u).toEqual({
+      text: "x",
+      board: [{ handle: "@db", type: "database", label: "Db", parent: null }],
+      recent: [],
+      draft: [{ key: "p0", type: "box", label: "X", parent: null }],
+    })
     expect(SYSTEM).toContain("never invent handles")
   })
 })

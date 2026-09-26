@@ -1,4 +1,4 @@
-import { type EntryEdge, type EntryGraph, type EntryNode, REGISTRY } from "@rtw/shared"
+import { type EntryEdge, type EntryGraph, type EntryNode, type NodeType, REGISTRY } from "@rtw/shared"
 import { labelFrom } from "../classify/keywords.ts"
 import type { PieceAnswers } from "./answers.ts"
 import type { Piece } from "./split.ts"
@@ -10,12 +10,28 @@ const MAX_REPEAT = 8
 
 const NUMBER_WORDS: Record<string, number> = { two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, couple: 2, few: 3 }
 const COUNT = /^(?:a\s+)?(two|three|four|five|six|seven|eight|couple(?:\s+of)?|few|\d+)\s+/i
+/** A number followed by one of these is a value ("25 min timer"), never a count. */
+const UNIT =
+  /^(?:m|min|mins|minute|minutes|s|sec|secs|second|seconds|ms|h|hr|hrs|hour|hours|day|days|week|weeks|month|months|year|years|%|percent|px|pt|em|rem|k|m|b|kb|mb|gb|tb|x|star|stars|col|cols|column|step|steps|dollar|dollars|usd|\$)\b/i
 const LAYOUT_WORDS = /\b(in a row|side by side|horizontal(ly)?|inline|in a grid|grid of|stacked|vertical(ly)?|in a column)\b/gi
 
-/** "three pricing cards" → 3; values are code-computed, never model-decided. */
+/** Is the phrase about several things? ("pricing cards" yes, "status" no.) */
+const pluralPhrase = (text: string) => {
+  const last = text.replace(LAYOUT_WORDS, " ").trim().split(/\s+/).at(-1) ?? ""
+  return /[a-z]{2,}s$/i.test(last) && !/(ss|us|is)$/i.test(last)
+}
+
+/**
+ * "three pricing cards" → 3. Values are code-computed, never model-decided.
+ * Only a number in front of a plural thing is a count: "25 min timer" (a unit)
+ * and "2 column layout" (singular) are values.
+ */
 export function countOf(text: string): number {
-  const m = COUNT.exec(text.trim())
+  const t = text.trim()
+  const m = COUNT.exec(t)
   if (!m) return 1
+  const rest = t.slice(m[0].length)
+  if (UNIT.test(rest) || !pluralPhrase(rest)) return 1
   const w = m[1]!.toLowerCase().replace(/\s+of$/, "")
   const n = NUMBER_WORDS[w] ?? Number.parseInt(w, 10)
   return Number.isFinite(n) ? Math.max(1, Math.min(MAX_REPEAT, n)) : 1
@@ -25,11 +41,29 @@ function pluralLabel(label: string) {
   return /s$/i.test(label) ? label : `${label}s`
 }
 
+const titleCase = (s: string) => s.replace(/\b([a-z])/g, (c) => c.toUpperCase())
+
+/**
+ * The label once an alias names the element: the same name stays ("server"
+ * → "Server"), a short qualifier joins the element's noun ("sql" → "SQL
+ * Database"), anything else is the element's name ("postgres" → "Postgres").
+ */
+export function aliasLabel(base: string, alias: string | undefined): string {
+  const a = alias?.trim()
+  if (!a) return base
+  if (a.toLowerCase() === base.toLowerCase()) return base
+  const noun = base.split(/\s+/).at(-1) ?? base
+  if (a.toLowerCase().split(/\s+/).includes(noun.toLowerCase())) return titleCase(a)
+  if (a.length <= 4) return `${a.toUpperCase()} ${titleCase(noun)}`
+  return titleCase(a)
+}
+
 /** A label without counts or layout phrases, singular when repeated. */
 function cleanLabel(text: string, repeated: boolean): string {
   // An unknown "@thing" is just text: the server never invents references.
   const plain = text.startsWith("@") ? text.slice(1).replace(/-/g, " ") : text
-  let t = plain.replace(COUNT, "").replace(LAYOUT_WORDS, " ").replace(/\s+/g, " ").trim()
+  // Keep numbers that are values ("25 min timer"); drop the count of repeats.
+  let t = (repeated ? plain.replace(COUNT, "") : plain).replace(LAYOUT_WORDS, " ").replace(/\s+/g, " ").trim()
   if (repeated) t = t.replace(/(\w{3,}[^s])s$/i, "$1")
   return labelFrom(t || plain)
 }
@@ -48,11 +82,29 @@ function cleanLabel(text: string, repeated: boolean): string {
  * name used twice in one entry is the same element.
  */
 /** What the assembler may know about committed @handles. */
-export type HandleInfo = ReadonlyMap<string, { container: boolean }>
+export type HandleInfo = ReadonlyMap<string, { container: boolean; type?: NodeType }>
+
+/** Flow direction for "connect them": UI → client → service → queue/external → data stores. */
+const TIER: Partial<Record<NodeType, number>> = {
+  client: 1,
+  service: 2,
+  queue: 3,
+  "external-api": 3,
+  database: 4,
+  cache: 4,
+  storage: 4,
+}
+const tierOf = (t: NodeType | undefined) => (t ? (TIER[t] ?? (REGISTRY[t].lane === "ui" ? 0 : 2)) : 2)
 
 const HANDLE_ONLY = /^@[a-z0-9][a-z0-9-]*$/i
 
-export function assemble(pieces: readonly Piece[], answers: readonly PieceAnswers[], handles: HandleInfo = new Map()): EntryGraph {
+export function assemble(
+  pieces: readonly Piece[],
+  answers: readonly PieceAnswers[],
+  handles: HandleInfo = new Map(),
+  /** The @handles this person added most recently: what "them" means. */
+  recent: readonly string[] = [],
+): EntryGraph {
   const nodes: MutableNode[] = []
   const edges: EntryEdge[] = []
   const byKey = new Map<string, MutableNode>()
@@ -68,6 +120,20 @@ export function assemble(pieces: readonly Piece[], answers: readonly PieceAnswer
   }
 
   pieces.forEach((piece, i) => {
+    if (piece.connector === "connect") {
+      // "connect them together": chain the recent elements in flow order.
+      const known = recent.filter((h) => handles.has(h))
+      const ordered = known
+        .map((h, at) => ({ h, at, tier: tierOf(handles.get(h)!.type) }))
+        .sort((x, y) => x.tier - y.tier || x.at - y.at)
+      for (let k = 1; k < ordered.length; k++) {
+        const from = ordered[k - 1]!.h
+        const to = ordered[k]!.h
+        if (!edges.some((e) => e.from === from && e.to === to)) edges.push({ from, to, kind: "calls", label: "connects" })
+      }
+      prev = null
+      return
+    }
     const a = answers[i]
     if (!a) return
     const container = a.isContainer >= YES
@@ -129,7 +195,7 @@ export function assemble(pieces: readonly Piece[], answers: readonly PieceAnswer
       return
     }
 
-    const node: MutableNode = { key, type: a.nodeType.value, label: cleanLabel(piece.text, false), parent, props: {} }
+    const node: MutableNode = { key, type: a.nodeType.value, label: aliasLabel(cleanLabel(piece.text, false), piece.alias), parent, props: {} }
     nodes.push(node)
     byKey.set(key, node)
     keyOfPiece.set(piece.index, key)
