@@ -22,6 +22,9 @@ import {
 import { Context, Deferred, Effect, Fiber, Layer, Queue } from "effect"
 import { BoardStore } from "./BoardStore.ts"
 import { Classifier } from "./classify/Classifier.ts"
+import type { EntryGraph } from "@rtw/shared"
+import type { BoardSummaryItem } from "./refine/prompt.ts"
+import { Refiner } from "./refine/Refiner.ts"
 import { type BoardView, type DraftMemory, type HandleInfo, interpret, materialize, type PieceMemory } from "./engine/index.ts"
 import { avoid, estimateSizes, pushAside, type Rect } from "./engine/layout.ts"
 
@@ -79,6 +82,9 @@ export const RoomsLive = Layer.effect(
   Effect.gen(function* () {
     const store = yield* BoardStore
     const classifier = yield* Classifier
+    const refiner = yield* Refiner
+    const llmDebounce = Number(process.env.LLM_DEBOUNCE_MS) || 1500
+    const commitWait = Number(process.env.LLM_COMMIT_WAIT_MS) || 1200
     const rooms = new Map<string, Room>()
 
     const broadcast = (room: Room, msg: ServerMessage, exceptId?: string) =>
@@ -131,6 +137,15 @@ export const RoomsLive = Layer.effect(
         if (n) byHandle.set(h, n)
       }
       return { byHandle, byId: room.nodes }
+    }
+
+    /** What the LLM may reference: committed elements with their handles. */
+    const boardSummary = (room: Room): BoardSummaryItem[] => {
+      const handleOf = (id: string | null) => (id ? (room.nodes.get(id)?.handle ?? null) : null)
+      return [...room.nodes.values()]
+        .filter((n) => n.handle)
+        .slice(0, 200)
+        .map((n) => ({ handle: n.handle!, type: n.type, label: n.label, parent: handleOf(n.parent) }))
     }
 
     const handleInfo = (room: Room): HandleInfo => {
@@ -220,16 +235,32 @@ export const RoomsLive = Layer.effect(
         let pieceMemory: ReadonlyMap<number, PieceMemory> = new Map()
         let inflight: Fiber.RuntimeFiber<void> | null = null
         let latest: { text: string; anchor: Point } | null = null
+        // The LLM cleanup pass: its pending fiber, and its result for one exact text.
+        let llmFiber: Fiber.RuntimeFiber<void> | null = null
+        let llmResult: { text: string; graph: EntryGraph } | null = null
+        /** The instant (Jev/keyword) graph last shown, so the LLM can keep its keys. */
+        let lastGraph: EntryGraph | null = null
 
         const cancelInflight = Effect.suspend(() => {
           const f = inflight
+          const l = llmFiber
           inflight = null
-          return f ? Fiber.interruptFork(f) : Effect.void
+          llmFiber = null
+          return Effect.all([f ? Fiber.interruptFork(f) : Effect.void, l ? Fiber.interruptFork(l) : Effect.void], { discard: true })
         })
+
+        const refine = (text: string) =>
+          refiner.refine({
+            text,
+            board: boardSummary(room),
+            draft: (lastGraph?.nodes ?? []).map((n) => ({ key: n.key, type: n.type, label: n.label, parent: n.parent })),
+          })
 
         const clearDraft = Effect.suspend(() => {
           pieceMemory = new Map()
           latest = null
+          llmResult = null
+          lastGraph = null
           room.memory.delete(user.id)
           return room.drafts.delete(user.id)
             ? Effect.zipRight(broadcast(room, new DraftCleared({ userId: user.id })), relayout(room))
@@ -243,13 +274,16 @@ export const RoomsLive = Layer.effect(
             if (!me) return Effect.succeed([])
             const r = interpret({ text, handles: handleInfo(room), peek: classifier.peek, memory: pieceMemory })
             pieceMemory = r.memory
-            if (r.graph.nodes.length === 0) return Effect.as(clearDraft, [])
+            lastGraph = r.graph
+            // The LLM's reading of this exact text wins over the instant one.
+            const graph = llmResult?.text === text ? llmResult.graph : r.graph
+            if (graph.nodes.length === 0) return Effect.as(clearDraft, [])
             const prev = room.memory.get(user.id)
             const memory = placeNewRoots(
               room,
               user.id,
               prev,
-              materialize({ graph: r.graph, prev, anchor, user: me, newId: () => crypto.randomUUID(), board: boardView(room) }),
+              materialize({ graph, prev, anchor, user: me, newId: () => crypto.randomUUID(), board: boardView(room) }),
             )
             const draft: Draft = { userId: user.id, text, nodes: memory.nodes, edges: memory.edges }
             room.memory.set(user.id, memory)
@@ -276,21 +310,51 @@ export const RoomsLive = Layer.effect(
               if (!self()) return
               if (!text.trim()) return yield* clearDraft
               latest = { text, anchor }
+              if (llmResult?.text !== text) llmResult = null
               const missing = yield* render(text, anchor)
-              if (missing.length === 0 || !classifier.enabled) return
-              // Jev answers arrive async: re-render with them only if this is still the latest input.
-              inflight = yield* Effect.fork(
-                classifier.fetch(missing).pipe(
-                  Effect.zipRight(Effect.suspend(() => (latest?.text === text ? render(text, anchor) : Effect.void))),
-                  Effect.asVoid,
-                ),
-              )
+              const stillLatest = (then: Effect.Effect<unknown>) => Effect.suspend(() => (latest?.text === text ? then : Effect.void))
+              if (missing.length > 0 && classifier.enabled) {
+                // Jev answers arrive async: re-render with them only if this is still the latest input.
+                inflight = yield* Effect.fork(Effect.asVoid(classifier.fetch(missing).pipe(Effect.zipRight(stillLatest(render(text, anchor))))))
+              }
+              if (refiner.enabled && llmResult === null) {
+                // After a longer pause, the LLM cleans up what Jev can't (pronouns, chains, phrasing).
+                llmFiber = yield* Effect.fork(
+                  Effect.sleep(llmDebounce).pipe(
+                    Effect.zipRight(refine(text)),
+                    Effect.flatMap((graph) =>
+                      stillLatest(
+                        Effect.suspend(() => {
+                          llmResult = { text, graph }
+                          return render(text, anchor)
+                        }),
+                      ),
+                    ),
+                    Effect.catchAll(() => Effect.void),
+                    Effect.asVoid,
+                  ),
+                )
+              }
             }),
 
           commit: Effect.gen(function* () {
             yield* cancelInflight
+            // Enter commits the LLM's version when it can arrive quickly; otherwise the instant one.
+            const typed = latest
+            if (typed && refiner.enabled && llmResult?.text !== typed.text) {
+              const graph = yield* refine(typed.text).pipe(
+                Effect.timeout(commitWait),
+                Effect.catchAll(() => Effect.succeed(null)),
+              )
+              if (graph) {
+                llmResult = { text: typed.text, graph }
+                yield* render(typed.text, typed.anchor)
+              }
+            }
             pieceMemory = new Map()
             latest = null
+            llmResult = null
+            lastGraph = null
             const draft = room.drafts.get(user.id)
             if (!draft || draft.nodes.length === 0) return
             // Elements this draft pushed aside stay where they were pushed.
