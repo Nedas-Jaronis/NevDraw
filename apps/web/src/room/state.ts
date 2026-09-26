@@ -1,4 +1,4 @@
-import type { BoardEdge, BoardNode, Draft, PieceDebug, ServerMessage, User } from "@rtw/shared"
+import type { BoardEdge, BoardNode, Draft, PieceDebug, ServerMessage, Suggestion, User } from "@rtw/shared"
 
 export type ConnectionStatus = "connecting" | "open" | "reconnecting"
 
@@ -13,6 +13,8 @@ export type RoomState = {
   drafts: ReadonlyMap<string, Draft>
   /** Committed elements drafts are currently pushing aside (derived by the server). */
   displaced: ReadonlyMap<string, { x: number; y: number }>
+  /** "link to @x?" chips for this user's own input (the server sends them only to us). */
+  suggestions: readonly Suggestion[]
   /** How each draft's pieces were classified (for ?debug=1), keyed by user id. */
   debug: ReadonlyMap<string, readonly PieceDebug[]>
 }
@@ -25,6 +27,7 @@ export const initialRoomState: RoomState = {
   edges: new Map(),
   drafts: new Map(),
   displaced: new Map(),
+  suggestions: [],
   debug: new Map(),
 }
 
@@ -48,6 +51,7 @@ export function applyServerMessage(state: RoomState, msg: ServerMessage): RoomSt
         edges: new Map(msg.edges.map((e) => [e.id, e])),
         drafts: new Map(msg.drafts.map((d) => [d.userId, d])),
         displaced: new Map(msg.displaced.map((d) => [d.id, { x: d.x, y: d.y }])),
+        suggestions: [],
         debug: new Map(),
       }
     case "UserJoined":
@@ -83,6 +87,8 @@ export function applyServerMessage(state: RoomState, msg: ServerMessage): RoomSt
       for (const n of msg.nodes) nodes.set(n.id, n)
       return { ...state, nodes }
     }
+    case "SuggestionsUpdated":
+      return { ...state, suggestions: msg.suggestions }
     case "LayoutUpdated":
       return { ...state, displaced: new Map(msg.displaced.map((d) => [d.id, { x: d.x, y: d.y }])) }
     case "NodesRemoved": {

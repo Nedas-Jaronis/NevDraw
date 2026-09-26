@@ -42,3 +42,17 @@ export function referencedHandles(text: string, known: ReadonlySet<string>): str
   }
   return out
 }
+
+/**
+ * Accept "link to @postgres?": rewrite the last plain mention of the words
+ * into the handle, so the binding is explicit in the text.
+ */
+export function acceptSuggestion(text: string, suggestion: { text: string; handle: string }): string {
+  const escaped = suggestion.text.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+")
+  const re = new RegExp(`(^|[^@\\w-])(${escaped})(?![\\w-])`, "gi")
+  let last: RegExpExecArray | null = null
+  for (let m = re.exec(text); m; m = re.exec(text)) last = m
+  if (!last) return text
+  const at = last.index + last[1]!.length
+  return `${text.slice(0, at)}${suggestion.handle}${text.slice(at + last[2]!.length)}`
+}

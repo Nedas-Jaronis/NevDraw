@@ -239,6 +239,7 @@ export function Board({ roomId, identity }: { roomId: string; identity: Identity
       <InputBox
         color={color}
         handles={handles}
+        suggestions={state.suggestions}
         onHighlight={setHighlight}
         onChange={(text) => send(new SetInput({ text, anchor: anchor() }))}
         onCommit={() => send(new Commit())}
