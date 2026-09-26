@@ -1,0 +1,15 @@
+{
+  "name": "@rtw/server",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "PORT=3001 bun --env-file=../../.env --watch src/main.ts",
+    "start": "bun --env-file=../../.env src/main.ts"
+  },
+  "dependencies": {
+    "@effect/platform": "^0.97.2",
+    "@effect/platform-bun": "^0.91.2",
+    "@rtw/shared": "workspace:*",
+    "effect": "^3.22.2"
+  }
+}
