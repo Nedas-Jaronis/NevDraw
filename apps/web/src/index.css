@@ -1,5 +1,8 @@
 @import "tailwindcss";
 
+/* Tailwind's dark: follows the app's theme switch, not only the OS setting. */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
 :root {
   --board-bg: #fafaf9;
   --board-dot: #d6d3d1;
@@ -16,8 +19,8 @@
   --on-a: var(--panel);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
+/* The resolved theme (system / light / dark) lives on <html data-theme>, set before first paint. */
+:root[data-theme="dark"] {
     --board-bg: #141413;
     --board-dot: #3a3836;
     --ink: #f5f5f4;
@@ -28,7 +31,6 @@
     --hairline: rgba(245, 245, 244, 0.1);
     --edge: #78716c;
     --accent-default: #f5f5f4;
-  }
 }
 
 html,

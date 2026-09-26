@@ -24,6 +24,8 @@ export function RootView(props: {
   item: Item
   tree: Tree
   selected: boolean
+  /** The ✕ on the element (only when it's the one selected; several use the toolbar). */
+  showDelete: boolean
   dragging: boolean
   /** This viewer's color, for the selection ring. */
   accent: string
@@ -45,6 +47,7 @@ export function RootView(props: {
       {selected && (
         <>
           <div className="pointer-events-none absolute -inset-1.5 rounded-[20px]" style={{ boxShadow: `0 0 0 1.5px ${accent}` }} />
+          {props.showDelete && (
           <button
             type="button"
             data-ui
@@ -54,6 +57,7 @@ export function RootView(props: {
           >
             ✕
           </button>
+          )}
         </>
       )}
       {typing && (

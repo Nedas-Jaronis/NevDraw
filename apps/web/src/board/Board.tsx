@@ -22,6 +22,7 @@ import { HighlightContext, RootView } from "./NodeView.tsx"
 import { DebugPanel } from "./DebugPanel.tsx"
 import { EdgeLayer } from "./EdgeLayer.tsx"
 import { buildTree } from "./tree.ts"
+import { applyTheme, followSystem, loadTheme, type ThemePref } from "../theme.ts"
 
 const DEBUG = new URLSearchParams(location.search).has("debug")
 
@@ -30,8 +31,20 @@ const CLICK_SLOP = 4
 type Gesture =
   | { kind: "none" }
   | { kind: "pan"; startCam: Camera; start: Point; moved: boolean }
-  | { kind: "drag"; id: string; start: Point; origin: Point; moved: boolean }
+  /** Moving one or more selected elements together. */
+  | { kind: "drag"; clicked: string; ids: string[]; start: Point; origins: Map<string, Point>; moved: boolean; shift: boolean }
+  /** Rubber-band selection on empty canvas. */
+  | { kind: "marquee"; start: Point; base: ReadonlySet<string>; moved: boolean }
   | { kind: "pinch"; start: { cam: Camera; a: Point; b: Point } }
+
+type Rect = { left: number; top: number; right: number; bottom: number }
+const rectOf = (a: Point, b: Point): Rect => ({
+  left: Math.min(a.x, b.x),
+  top: Math.min(a.y, b.y),
+  right: Math.max(a.x, b.x),
+  bottom: Math.max(a.y, b.y),
+})
+const touches = (r: Rect, d: DOMRect) => d.left < r.right && d.right > r.left && d.top < r.bottom && d.bottom > r.top
 
 /** At most one call per animation frame for a stream of values (the latest wins). */
 function useFrameThrottle<T>(flush: (v: T) => void) {
@@ -56,17 +69,22 @@ export function Board({ roomId, identity }: { roomId: string; identity: Identity
   const [camera, setCamera] = useState<Camera>({ x: 0, y: 0, zoom: 1 })
   const cam = useRef(camera)
   cam.current = camera
-  const [selected, setSelected] = useState<string | null>(null)
+  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
+  const [marquee, setMarquee] = useState<Rect | null>(null)
   const [highlight, setHighlight] = useState<string | null>(null)
-  const [dragPos, setDragPos] = useState<{ id: string; x: number; y: number } | null>(null)
+  /** Elements being dragged follow the pointer locally; everyone else gets per-frame updates. */
+  const [dragPos, setDragPos] = useState<ReadonlyMap<string, Point> | null>(null)
   const dragRef = useRef(dragPos)
   dragRef.current = dragPos
+  const [spaceHeld, setSpaceHeld] = useState(false)
   const boardRef = useRef<HTMLDivElement>(null)
   const pointers = useRef(new Map<number, Point>())
   const gesture = useRef<Gesture>({ kind: "none" })
 
   const queueCursor = useFrameThrottle((p: Point | null) => send(new MoveCursor({ cursor: p })))
-  const queueMove = useFrameThrottle((m: { id: string; x: number; y: number }) => send(new MoveNode({ ...m, final: false })))
+  const queueMove = useFrameThrottle((moves: ReadonlyMap<string, Point>) => {
+    for (const [id, p] of moves) send(new MoveNode({ id, x: p.x, y: p.y, final: false }))
+  })
 
   const boardActions = useMemo(() => ({ setImage: (id: string, src: string | null) => send(new SetImage({ id, src })) }), [send])
   const handles = useMemo(
@@ -78,19 +96,27 @@ export function Board({ roomId, identity }: { roomId: string; identity: Identity
   const self = state.selfId ? state.users.get(state.selfId) : undefined
   const color = self?.color ?? identity.color
 
-  // The element being dragged follows the pointer locally; everyone else gets per-frame updates.
   const tree = useMemo(() => {
     const t = buildTree(state)
     if (!dragPos) return t
     return {
       ...t,
-      roots: t.roots.map((r) => (r.node.id === dragPos.id ? { ...r, node: { ...r.node, x: dragPos.x, y: dragPos.y } } : r)),
+      roots: t.roots.map((r) => {
+        const p = dragPos.get(r.node.id)
+        return p ? { ...r, node: { ...r.node, x: p.x, y: p.y } } : r
+      }),
     }
   }, [state, dragPos])
 
+  // Forget selected elements that no longer exist (deleted here or by someone else).
   useEffect(() => {
-    if (selected && !state.nodes.has(selected)) setSelected(null)
+    if ([...selected].some((id) => !state.nodes.has(id))) setSelected(new Set([...selected].filter((id) => state.nodes.has(id))))
   }, [selected, state.nodes])
+
+  const deleteSelected = () => {
+    for (const id of selected) send(new DeleteNode({ id }))
+    setSelected(new Set())
+  }
 
   // New top-level drafts appear just above the input box, in this viewer's view.
   const anchor = () => toWorld(camera, window.innerWidth / 2, window.innerHeight / 2 - 60)
@@ -106,33 +132,48 @@ export function Board({ roomId, identity }: { roomId: string; identity: Identity
         // Mouse wheels send ~100 per notch, trackpad pinches a few units: clamp so both feel smooth.
         const d = Math.max(-40, Math.min(40, e.deltaY))
         setCamera((c) => zoomAt(c, e.clientX, e.clientY, c.zoom * Math.exp(-d * 0.006)))
-      }
-      else setCamera((c) => panBy(c, -e.deltaX, -e.deltaY))
+      } else setCamera((c) => panBy(c, -e.deltaX, -e.deltaY))
     }
     el.addEventListener("wheel", onWheel, { passive: false })
     return () => el.removeEventListener("wheel", onWheel)
   }, [])
 
-  // Delete / Backspace removes the selected element (unless typing); Esc deselects.
-  // Typing a character while the canvas has focus jumps back into the input box.
+  // Delete / Backspace removes the selection (unless typing); Esc clears it; Ctrl/⌘+A selects all;
+  // Space held turns dragging into panning. Typing a character jumps back into the input box.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const typing = (document.activeElement as HTMLElement | null)?.tagName === "INPUT"
       if (typing) return
+      if (e.key === " ") {
+        e.preventDefault()
+        setSpaceHeld(true)
+        return
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a") {
+        e.preventDefault()
+        setSelected(new Set([...state.nodes.values()].filter((n) => n.parent === null).map((n) => n.id)))
+        return
+      }
       if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
         document.getElementById("board-input")?.focus()
         return
       }
-      if (!selected) return
+      if (selected.size === 0) return
       if (e.key === "Delete" || e.key === "Backspace") {
         e.preventDefault()
-        send(new DeleteNode({ id: selected }))
-        setSelected(null)
-      } else if (e.key === "Escape") setSelected(null)
+        deleteSelected()
+      } else if (e.key === "Escape") setSelected(new Set())
+    }
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.key === " ") setSpaceHeld(false)
     }
     window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
-  }, [selected, send])
+    window.addEventListener("keyup", onKeyUp)
+    return () => {
+      window.removeEventListener("keydown", onKey)
+      window.removeEventListener("keyup", onKeyUp)
+    }
+  })
 
   const committedRoot = (target: EventTarget | null): BoardNode | null => {
     const id = (target as Element | null)?.closest?.("[data-root-id]")?.getAttribute("data-root-id")
@@ -141,11 +182,25 @@ export function Board({ roomId, identity }: { roomId: string; identity: Identity
   }
 
   const finishDrag = (g: Extract<Gesture, { kind: "drag" }>) => {
-    const pos = dragRef.current
-    if (!g.moved || !pos) return
-    send(new MoveNode({ id: g.id, x: pos.x, y: pos.y, final: true }))
-    const n = state.nodes.get(g.id)
-    if (n) applyLocal(new NodesUpdated({ nodes: [{ ...n, x: Math.round(pos.x), y: Math.round(pos.y), pinned: true }] }))
+    const moves = dragRef.current
+    if (!g.moved || !moves) return
+    const updated: BoardNode[] = []
+    for (const [id, p] of moves) {
+      send(new MoveNode({ id, x: p.x, y: p.y, final: true }))
+      const n = state.nodes.get(id)
+      if (n) updated.push({ ...n, x: Math.round(p.x), y: Math.round(p.y), pinned: true })
+    }
+    if (updated.length) applyLocal(new NodesUpdated({ nodes: updated }))
+  }
+
+  /** Committed top-level elements whose box touches the rubber band (screen coordinates). */
+  const hitsIn = (r: Rect) => {
+    const out: string[] = []
+    for (const el of boardRef.current?.querySelectorAll("[data-root-id]") ?? []) {
+      const id = el.getAttribute("data-root-id")
+      if (id && touches(r, el.getBoundingClientRect())) out.push(id)
+    }
+    return out
   }
 
   const onPointerDown = (e: React.PointerEvent) => {
@@ -159,17 +214,30 @@ export function Board({ roomId, identity }: { roomId: string; identity: Identity
       const g = gesture.current
       if (g.kind === "drag") finishDrag(g)
       setDragPos(null)
+      setMarquee(null)
       const [a, b] = [...pointers.current.values()] as [Point, Point]
       gesture.current = { kind: "pinch", start: { cam: cam.current, a, b } }
       return
     }
     if (pointers.current.size > 2) return
 
-    const node = committedRoot(e.target)
     const start = { x: e.clientX, y: e.clientY }
-    gesture.current = node
-      ? { kind: "drag", id: node.id, start, origin: state.displaced.get(node.id) ?? { x: node.x, y: node.y }, moved: false }
-      : { kind: "pan", startCam: cam.current, start, moved: false }
+    const panning = spaceHeld || e.button === 1 || e.pointerType === "touch"
+    const node = panning ? null : committedRoot(e.target)
+    if (node) {
+      // Dragging a selected element moves the whole selection.
+      const ids = selected.has(node.id) ? [...selected] : [node.id]
+      const origins = new Map<string, Point>()
+      for (const id of ids) {
+        const n = state.nodes.get(id)
+        if (n && n.parent === null) origins.set(id, state.displaced.get(id) ?? { x: n.x, y: n.y })
+      }
+      gesture.current = { kind: "drag", clicked: node.id, ids, start, origins, moved: false, shift: e.shiftKey }
+    } else if (panning) {
+      gesture.current = { kind: "pan", startCam: cam.current, start, moved: false }
+    } else {
+      gesture.current = { kind: "marquee", start, base: e.shiftKey ? selected : new Set(), moved: false }
+    }
   }
 
   const onPointerMove = (e: React.PointerEvent) => {
@@ -190,10 +258,16 @@ export function Board({ roomId, identity }: { roomId: string; identity: Identity
     g.moved = true
 
     if (g.kind === "pan") setCamera(panBy(g.startCam, dx, dy))
-    else {
-      const pos = { id: g.id, x: g.origin.x + dx / cam.current.zoom, y: g.origin.y + dy / cam.current.zoom }
-      setDragPos(pos)
-      queueMove(pos)
+    else if (g.kind === "marquee") {
+      const r = rectOf(g.start, { x: e.clientX, y: e.clientY })
+      setMarquee(r)
+      setSelected(new Set([...g.base, ...hitsIn(r)]))
+    } else {
+      const z = cam.current.zoom
+      const moves = new Map<string, Point>()
+      for (const [id, o] of g.origins) moves.set(id, { x: o.x + dx / z, y: o.y + dy / z })
+      setDragPos(moves)
+      queueMove(moves)
     }
   }
 
@@ -202,9 +276,19 @@ export function Board({ roomId, identity }: { roomId: string; identity: Identity
     const g = gesture.current
     if (g.kind === "drag") {
       finishDrag(g)
-      if (!g.moved) setSelected(g.id)
-    } else if (g.kind === "pan" && !g.moved) setSelected(null)
+      if (!g.moved) {
+        if (g.shift) {
+          const next = new Set(selected)
+          if (next.has(g.clicked)) next.delete(g.clicked)
+          else next.add(g.clicked)
+          setSelected(next)
+        } else setSelected(new Set([g.clicked]))
+      } else if (!selected.has(g.clicked)) setSelected(new Set([g.clicked]))
+    } else if (g.kind === "marquee" && !g.moved) {
+      if (g.base.size === 0) setSelected(new Set())
+    } else if (g.kind === "pan" && !g.moved) setSelected(new Set())
     setDragPos(null)
+    setMarquee(null)
     gesture.current = { kind: "none" }
     // Lifting one finger of a pinch shouldn't turn the other into a jumpy pan.
     pointers.current.clear()
@@ -213,7 +297,7 @@ export function Board({ roomId, identity }: { roomId: string; identity: Identity
   return (
     <div
       ref={boardRef}
-      className="board-grid fixed inset-0 touch-none select-none overflow-hidden"
+      className={`board-grid fixed inset-0 touch-none select-none overflow-hidden ${spaceHeld ? "cursor-grab" : ""}`}
       style={{
         backgroundSize: `${22 * camera.zoom}px ${22 * camera.zoom}px`,
         backgroundPosition: `${camera.x}px ${camera.y}px`,
@@ -237,12 +321,13 @@ export function Board({ roomId, identity }: { roomId: string; identity: Identity
               key={item.node.id}
               item={item}
               tree={tree}
-              selected={selected === item.node.id}
-              dragging={dragPos?.id === item.node.id}
+              selected={selected.has(item.node.id)}
+              showDelete={selected.size === 1}
+              dragging={dragPos?.has(item.node.id) ?? false}
               accent={color}
               onDelete={() => {
                 send(new DeleteNode({ id: item.node.id }))
-                setSelected(null)
+                setSelected(new Set())
               }}
             />
           ))}
@@ -250,6 +335,33 @@ export function Board({ roomId, identity }: { roomId: string; identity: Identity
         </HighlightContext.Provider>
         </BoardActions.Provider>
       </div>
+      {marquee && (
+        <div
+          className="pointer-events-none absolute z-30 rounded-sm"
+          style={{
+            left: marquee.left,
+            top: marquee.top,
+            width: marquee.right - marquee.left,
+            height: marquee.bottom - marquee.top,
+            border: `1px solid ${color}`,
+            background: `color-mix(in srgb, ${color} 10%, transparent)`,
+          }}
+        />
+      )}
+      {selected.size > 1 && (
+        <div
+          data-ui
+          className="absolute left-1/2 top-3 z-40 flex -translate-x-1/2 items-center gap-2 rounded-full border border-[var(--panel-border)] bg-[var(--panel)] py-1 pl-3 pr-1 text-xs shadow-sm"
+        >
+          <span className="tabular-nums text-[var(--muted)]">{selected.size} selected</span>
+          <button type="button" onClick={deleteSelected} className="rounded-full bg-red-500/90 px-2.5 py-0.5 font-medium text-white hover:bg-red-500">
+            Delete
+          </button>
+          <button type="button" onClick={() => setSelected(new Set())} className="rounded-full px-2 py-0.5 text-[var(--muted)] hover:text-[var(--ink)]">
+            Clear
+          </button>
+        </div>
+      )}
       {others.map((u) => u.cursor && <RemoteCursor key={u.id} user={u} at={toScreen(camera, u.cursor)} />)}
       <ZoomControls zoom={camera.zoom} onZoom={(z) => setCamera((c) => zoomAt(c, window.innerWidth / 2, window.innerHeight / 2, z))} />
       <InputBox
@@ -312,6 +424,34 @@ function RemoteCursor({ user, at }: { user: User; at: Point }) {
   )
 }
 
+const THEMES: Array<{ pref: ThemePref; label: string; icon: string }> = [
+  { pref: "system", label: "Theme: system", icon: "◐" },
+  { pref: "light", label: "Theme: light", icon: "☀" },
+  { pref: "dark", label: "Theme: dark", icon: "☾" },
+]
+
+/** System → light → dark. System (the default) follows the OS live. */
+function ThemeToggle() {
+  const [pref, setPref] = useState<ThemePref>(loadTheme)
+  useEffect(() => {
+    applyTheme(pref)
+    return followSystem(pref)
+  }, [pref])
+  const current = THEMES.find((t) => t.pref === pref)!
+  const next = THEMES[(THEMES.indexOf(current) + 1) % THEMES.length]!
+  return (
+    <button
+      type="button"
+      onClick={() => setPref(next.pref)}
+      aria-label={`${current.label}. Switch to ${next.pref}`}
+      title={current.label}
+      className="flex h-6 w-6 items-center justify-center rounded-md border border-[var(--panel-border)] text-xs text-[var(--muted)] hover:text-[var(--ink)]"
+    >
+      {current.icon}
+    </button>
+  )
+}
+
 function TopBar(props: { roomId: string; users: User[]; selfId: string | null; status: string }) {
   const [copied, setCopied] = useState(false)
   const copy = async () => {
@@ -338,6 +478,7 @@ function TopBar(props: { roomId: string; users: User[]; selfId: string | null; s
         >
           {copied ? "Copied" : "Copy link"}
         </button>
+        <ThemeToggle />
         {props.status !== "open" && (
           <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-xs text-amber-600 dark:text-amber-400">
             {props.status === "connecting" ? "Connecting…" : "Reconnecting…"}
