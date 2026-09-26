@@ -127,9 +127,9 @@ export const RefinerFromEnv = Layer.suspend(() => {
   const g = looksLikeKey(geminiKey) ? gemini(geminiKey, env("GEMINI_MODEL") ?? DEFAULT_GEMINI_MODEL) : null
   const o = looksLikeKey(gptossKey)
     ? openAiCompatible({
-        baseUrl: env("GPTOSS_BASE_URL") ?? "https://openrouter.ai/api/v1",
+        baseUrl: env("GPTOSS_BASE_URL") ?? "https://api.cerebras.ai/v1",
         apiKey: gptossKey,
-        model: env("GPTOSS_MODEL") ?? "openai/gpt-oss-120b",
+        model: env("GPTOSS_MODEL") ?? "gpt-oss-120b",
       })
     : null
   const [primary, fallback] = env("LLM_PROVIDER") === "gptoss" ? [o, g] : [g, o]
