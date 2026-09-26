@@ -46,6 +46,10 @@ export const roomSocket = Effect.gen(function* () {
         return session.commit
       case "Discard":
         return session.discard
+      case "MoveNode":
+        return session.moveNode(msg.id, msg.x, msg.y, msg.final)
+      case "DeleteNode":
+        return session.deleteNode(msg.id)
     }
   }
 

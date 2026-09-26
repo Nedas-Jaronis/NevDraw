@@ -5,6 +5,8 @@ import {
   DraftCleared,
   DraftUpdated,
   NodesCommitted,
+  NodesRemoved,
+  NodesUpdated,
   type Point,
   type ServerMessage,
   type User,
@@ -40,6 +42,8 @@ export type Session = {
   readonly setInput: (text: string, anchor: Point) => Effect.Effect<void>
   readonly commit: Effect.Effect<void>
   readonly discard: Effect.Effect<void>
+  readonly moveNode: (id: string, x: number, y: number, final: boolean) => Effect.Effect<void>
+  readonly deleteNode: (id: string) => Effect.Effect<void>
   readonly leave: Effect.Effect<void>
 }
 
@@ -152,6 +156,34 @@ export const RoomsLive = Layer.effect(
           }),
 
           discard: clearDraft,
+
+          moveNode: (id, x, y, final) =>
+            Effect.gen(function* () {
+              const n = room.nodes.get(id)
+              // Only committed top-level elements move; children follow their container.
+              if (!n || n.parent !== null || !Number.isFinite(x) || !Number.isFinite(y)) return
+              const moved = { ...n, x: Math.round(x), y: Math.round(y), pinned: true }
+              room.nodes.set(id, moved)
+              yield* broadcast(room, new NodesUpdated({ nodes: [moved] }), user.id)
+              if (final) {
+                yield* store.upsert(roomId, [moved])
+                // The mover gets the canonical version once, on release.
+                const c = room.clients.get(user.id)
+                if (c) yield* Queue.offer(c.outbox, new NodesUpdated({ nodes: [moved] }))
+              }
+            }),
+
+          deleteNode: (id) =>
+            Effect.gen(function* () {
+              if (!room.nodes.has(id)) return
+              const ids = [id]
+              for (let i = 0; i < ids.length; i++) {
+                for (const n of room.nodes.values()) if (n.parent === ids[i]) ids.push(n.id)
+              }
+              for (const d of ids) room.nodes.delete(d)
+              yield* store.remove(roomId, ids)
+              yield* broadcast(room, new NodesRemoved({ ids }))
+            }),
 
           leave: Effect.gen(function* () {
             if (!room.clients.delete(user.id)) return

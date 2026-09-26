@@ -63,5 +63,8 @@ export function useRoom(roomId: string, identity: Identity) {
     if (ws?.readyState === WebSocket.OPEN) ws.send(encodeClientMessage(msg))
   }, [])
 
-  return { state, send }
+  /** Apply a server-shaped message locally before the server confirms it (e.g. a drag release). */
+  const applyLocal = useCallback((msg: Parameters<typeof applyServerMessage>[1]) => dispatch({ type: "server", msg }), [])
+
+  return { state, send, applyLocal }
 }
