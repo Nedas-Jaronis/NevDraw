@@ -100,7 +100,26 @@ function cleanLabel(text: string, repeated: boolean): string {
  * name used twice in one entry is the same element.
  */
 /** What the assembler may know about committed @handles. */
-export type HandleInfo = ReadonlyMap<string, { container: boolean; type?: NodeType }>
+export type HandleInfo = ReadonlyMap<string, { container: boolean; type?: NodeType; label?: string }>
+
+/** Media that can sit inside any element ("embed an image in the hero"). */
+const EMBEDDABLE = new Set<NodeType>(["image", "video", "chart", "map", "avatar"])
+
+const nameKey = (s: string) => s.toLowerCase().replace(/^(?:the|our|my|a|an)\s+/, "").replace(/[^a-z0-9]+/g, " ").trim()
+
+/**
+ * "an image in the hero area": the element named by its label (or handle
+ * words) at the end of the phrase, if one exists on the board.
+ */
+export function namedTarget(text: string, handles: HandleInfo): { rest: string; handle: string } | null {
+  const m = /^(.*?\S)\s+(?:in|into|inside|within|on|onto|to)\s+(?:the\s+|our\s+|my\s+)?(.+)$/i.exec(text.trim())
+  if (!m || m[2]!.startsWith("@")) return null
+  const want = nameKey(m[2]!)
+  for (const [h, info] of handles) {
+    if ((info.label && nameKey(info.label) === want) || nameKey(h.slice(1).replace(/-/g, " ")) === want) return { rest: m[1]!, handle: h }
+  }
+  return null
+}
 
 /** Flow direction for "connect them": UI → client → service → queue/external → data stores. */
 const TIER: Partial<Record<NodeType, number>> = {
@@ -279,13 +298,23 @@ export function assemble(
     }
 
     let parent: string | null = null
+    /** The phrase without "in the hero area" when that named an existing element. */
+    let namedRest: string | null = null
     // Arrow targets are separate elements, never nested.
     if (!edge && piece.connector !== "start" && prev) {
       const nest = piece.connector === "with" || a.childOfContainer >= YES
       parent = nest && prev.container ? prev.key : prev.parent
     }
-    // "add a form to @landing-page" (only into a known container).
-    if (piece.into && handles.get(piece.into)?.container) parent = piece.into
+    // "add a form to @landing-page": into a known container; media ("embed an image in @hero")
+    // can sit inside any element.
+    if (piece.into && (handles.get(piece.into)?.container || EMBEDDABLE.has(a.nodeType.value))) parent = piece.into
+    else if (!piece.into && !edge) {
+      const named = namedTarget(piece.text, handles)
+      if (named && (handles.get(named.handle)?.container || EMBEDDABLE.has(a.nodeType.value))) {
+        parent = named.handle
+        namedRest = named.rest
+      }
+    }
     // Services, databases, queues… are system pieces, never parts of a page.
     if (REGISTRY[a.nodeType.value].lane === "architecture") parent = null
 
@@ -344,7 +373,7 @@ export function assemble(
     const node: MutableNode = {
       key,
       type: a.nodeType.value,
-      label: piece.aliasIsName && piece.alias ? titleCase(piece.alias) : aliasLabel(cleanLabel(piece.text, false), piece.alias),
+      label: piece.aliasIsName && piece.alias ? titleCase(piece.alias) : aliasLabel(cleanLabel(namedRest ?? piece.text, false), piece.alias),
       parent,
       props: {
         ...(collection?.of ? { of: collection.of } : {}),

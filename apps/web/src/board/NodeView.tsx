@@ -1,6 +1,7 @@
 import { type BoardNode, REGISTRY } from "@rtw/shared"
 import { AnimatePresence, motion } from "motion/react"
-import { createContext, type ReactNode, useContext } from "react"
+import { createContext, type ReactNode, useContext, useState } from "react"
+import { BoardActions, downscale } from "./images.tsx"
 import type { Item, Tree } from "./tree.ts"
 import { onColor } from "./values.ts"
 import { Wire } from "./wires.tsx"
@@ -97,10 +98,34 @@ function ChildView({ item, tree, compact }: { item: Item; tree: Tree; compact: b
 function Frame(props: { node: BoardNode; draft: boolean; root?: boolean; selected?: boolean; children: ReactNode }) {
   const { node, draft, root } = props
   const hl = useContext(HighlightContext)
-  const lit = hl.handle !== null && node.handle === hl.handle
+  const actions = useContext(BoardActions)
+  const [dropping, setDropping] = useState(false)
+  const lit = (hl.handle !== null && node.handle === hl.handle) || dropping
+  // Drop a picture on any committed element: images/heroes take it; anything else gets an image inside.
+  const canDrop = !draft && actions !== null
   return (
     <div
       data-node-id={node.id}
+      onDragOver={(e) => {
+        if (!canDrop || !e.dataTransfer.types.includes("Files")) return
+        e.preventDefault()
+        e.stopPropagation()
+        setDropping(true)
+      }}
+      onDragLeave={() => setDropping(false)}
+      onDrop={(e) => {
+        if (!canDrop) return
+        e.preventDefault()
+        e.stopPropagation()
+        setDropping(false)
+        const file = e.dataTransfer.files[0]
+        if (!file?.type.startsWith("image/")) return
+        void downscale(file).then((src) => {
+          if (!src) return
+          if (node.type === "image" || node.type === "hero") actions.setImage(node.id, src)
+          else actions.dropImage(node.id, src)
+        })
+      }}
       className={`frame transition-shadow ${props.selected ? "is-selected" : ""} ${
         root
           ? "rounded-2xl bg-[var(--panel)] p-3 shadow-[0_1px_2px_rgba(0,0,0,0.04),0_8px_24px_-12px_rgba(0,0,0,0.14)]"
@@ -138,7 +163,24 @@ const LAYOUT_CLASS = {
 function Body({ item, tree, compact = false }: { item: Item; tree: Tree; compact?: boolean }) {
   const { node, draft } = item
   const showAuthor = !draft && node.parent === null
-  if (!isContainer(node)) return <Wire node={node} showAuthor={showAuthor} compact={compact} draft={draft} />
+  if (!isContainer(node)) {
+    // Leaves can hold embedded media ("an image in the hero") under their own body.
+    const embedded = tree.children.get(node.id) ?? []
+    return (
+      <div>
+        <Wire node={node} showAuthor={showAuthor} compact={compact} draft={draft} />
+        {embedded.length > 0 && (
+          <div className="mt-2 flex flex-col gap-2">
+            <AnimatePresence initial={false}>
+              {embedded.map((k) => (
+                <ChildView key={k.node.id} item={k} tree={tree} compact={false} />
+              ))}
+            </AnimatePresence>
+          </div>
+        )}
+      </div>
+    )
+  }
   const layout = node.props.layout ?? "stack"
 
   const kids = tree.children.get(node.id) ?? []

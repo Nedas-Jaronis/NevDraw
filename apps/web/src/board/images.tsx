@@ -2,7 +2,11 @@ import { isImageSrc, MAX_IMAGE_SRC } from "@rtw/shared"
 import { createContext, type ReactNode, useContext, useRef, useState } from "react"
 
 /** Board-level actions components can call (provided by the Board). */
-export const BoardActions = createContext<{ setImage: (id: string, src: string | null) => void } | null>(null)
+export const BoardActions = createContext<{
+  setImage: (id: string, src: string | null) => void
+  /** A picture dropped on an element that isn't an image: add an image inside it. */
+  dropImage: (parent: string, src: string) => void
+} | null>(null)
 
 /** Shrink a picked file to a data-URL that fits the sync limit. */
 export async function downscale(file: Blob): Promise<string | null> {
@@ -49,12 +53,14 @@ export function ImageSlot(props: { id: string; src: string | undefined; editable
       onDragOver={(e) => {
         if (!editable) return
         e.preventDefault()
+        e.stopPropagation()
         setOver(true)
       }}
       onDragLeave={() => setOver(false)}
       onDrop={(e) => {
         if (!editable) return
         e.preventDefault()
+        e.stopPropagation() // the frame around it would take the same drop
         setOver(false)
         void take(e.dataTransfer.files[0])
       }}

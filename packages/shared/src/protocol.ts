@@ -58,7 +58,13 @@ export class SetImage extends Schema.TaggedClass<SetImage>()("SetImage", {
   src: Schema.NullOr(Schema.String),
 }) {}
 
-export const ClientMessage = Schema.Union(Join, MoveCursor, SetInput, Commit, Discard, MoveNode, DeleteNode, SetImage)
+/** Dropped a picture onto an element that isn't an image: add an image inside it. */
+export class DropImage extends Schema.TaggedClass<DropImage>()("DropImage", {
+  parent: Schema.String,
+  src: Schema.String,
+}) {}
+
+export const ClientMessage = Schema.Union(Join, MoveCursor, SetInput, Commit, Discard, MoveNode, DeleteNode, SetImage, DropImage)
 export type ClientMessage = typeof ClientMessage.Type
 
 // ---------------------------------------------------------------------------

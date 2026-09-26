@@ -40,7 +40,9 @@ export function layoutPhrase(text: string): Layout | "none" {
 /** Offline answers from keywords: instant, and the fallback whenever Jev is unavailable. */
 export function keywordAnswers(piece: Piece): PieceAnswers {
   // Repeats are classified by their item ("pricing card"), counted by code.
-  const guess = classifyKeywords(classificationText(piece.text))
+  // "an image in the hero area": the element is what comes before the placement words.
+  const own = piece.text.replace(/\s+(?:in|into|inside|within|on|onto)\s+(?:the\s+|our\s+|my\s+)?[^,]+$/i, "")
+  const guess = classifyKeywords(classificationText(own || piece.text))
   const layout = layoutPhrase(piece.text)
   return {
     nodeType: { value: guess.type, confidence: guess.confidence },
