@@ -73,7 +73,8 @@ export const JevFromEnv = Layer.suspend(() => {
     return JevDisabled
   }
   const model = env("JEV_MODEL") ?? "jev-latest"
-  const timeout = envNumber("JEV_TIMEOUT_MS") ?? 2500
+  // Live probe 2026-09-26: whole entry p95 ≈ 420 ms; 800 ms keeps drafts snappy.
+  const timeout = envNumber("JEV_TIMEOUT_MS") ?? 800
   const client = new TypeSafeClient({ apiKey: key, defaultModel: model, retry: { maxRetries: 0 }, timeout })
   console.info(`[jev] online: ${model}, timeout ${timeout}ms`)
   return Layer.succeed(Jev, {

@@ -87,8 +87,9 @@ export const RoomsLive = Layer.effect(
     const store = yield* BoardStore
     const classifier = yield* Classifier
     const refiner = yield* Refiner
-    const llmDebounce = envNumber("LLM_DEBOUNCE_MS") ?? 1500
-    const commitWait = envNumber("LLM_COMMIT_WAIT_MS") ?? 1200
+    // Live probe 2026-09-26 (gpt-oss-120b on Cerebras): p50 ≈ 360–470 ms.
+    const llmDebounce = envNumber("LLM_DEBOUNCE_MS") ?? 900
+    const commitWait = envNumber("LLM_COMMIT_WAIT_MS") ?? 600
     const rooms = new Map<string, Room>()
 
     const broadcast = (room: Room, msg: ServerMessage, exceptId?: string) =>
