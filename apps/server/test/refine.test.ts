@@ -58,7 +58,7 @@ describe("providers against mock HTTP servers", () => {
   afterEach(() => servers.splice(0).forEach((s) => s.stop()))
   const input = { text: "checkout calls stripe, then it emails the user via a queue", board: [], draft: [] }
 
-  test("OpenAI-compatible (gpt-oss): JSON mode request, decoded with our schema", async () => {
+  test("OpenAI-compatible (gpt-oss): strict json_schema request, decoded with our schema", async () => {
     let seen: any = null
     const srv = Bun.serve({
       port: 0,
@@ -72,9 +72,54 @@ describe("providers against mock HTTP servers", () => {
     const g = await Effect.runPromise(impl.refine(input))
     expect(seen.url).toBe("/v1/chat/completions")
     expect(seen.auth).toBe("Bearer k-123456789012")
-    expect(seen.body).toMatchObject({ model: "openai/gpt-oss-120b", response_format: { type: "json_object" } })
+    expect(seen.body).toMatchObject({ model: "openai/gpt-oss-120b", response_format: { type: "json_schema", json_schema: { strict: true } } })
+    expect(seen.body.response_format.json_schema.schema.required).toEqual(["nodes", "edges", "suggestions"])
+    expect(seen.body.response_format.json_schema.schema.$schema).toBeUndefined()
     expect(seen.body.messages[0].content).toBe(SYSTEM)
     expect(g.edges.map((e) => e.kind)).toEqual(["calls", "publishes"])
+  })
+
+  test("OpenAI-compatible: a provider without strict mode gets plain JSON mode (and it's remembered)", async () => {
+    const formats: string[] = []
+    const srv = Bun.serve({
+      port: 0,
+      fetch: async (req) => {
+        const body = (await req.json()) as any
+        formats.push(body.response_format.type)
+        if (body.response_format.type === "json_schema") return new Response("response_format json_schema not supported", { status: 400 })
+        return Response.json({ choices: [{ message: { content: JSON.stringify(llmGraph) } }] })
+      },
+    })
+    servers.push(srv)
+    const impl = openAiCompatible({ baseUrl: `http://localhost:${srv.port}`, apiKey: "k-123456789012", model: "m" })
+    await Effect.runPromise(impl.refine(input))
+    await Effect.runPromise(impl.refine(input))
+    expect(formats).toEqual(["json_schema", "json_object", "json_object"])
+  })
+
+  test("OpenAI-compatible: the real garbled reply from gpt-oss (JSON mode) still decodes", async () => {
+    // Verbatim shape of what Cerebras gpt-oss-120b returned in json_object mode.
+    const garbled = {
+      nodes: [
+        { "key 다": "n1", type: "page", label: "Checkout page", parent: "", "layout поздрав": "none" },
+        { key: "n2", type: "external-api", label: "Stripe", parent: "", layout: "none" },
+        { key: "n3", type: "queue", label: "Email queue", parent: "", layout: "none" },
+      ],
+      edges: [
+        { sourceuib: "n1", target: "n2", kind: "calls" },
+        { source: "n1", target: "n3", kind: "calls" },
+      ],
+    }
+    const srv = Bun.serve({ port: 0, fetch: () => Response.json({ choices: [{ message: { content: JSON.stringify(garbled) } }] }) })
+    servers.push(srv)
+    const impl = openAiCompatible({ baseUrl: `http://localhost:${srv.port}`, apiKey: "k-123456789012", model: "m" })
+    const g = await Effect.runPromise(impl.refine(input))
+    expect(g.nodes.map((n) => [n.key, n.label])).toEqual([
+      ["n1", "Checkout page"],
+      ["n2", "Stripe"],
+      ["n3", "Email queue"],
+    ])
+    expect(g.edges.map((e) => `${e.from}->${e.to}`)).toEqual(["n1->n2", "n1->n3"])
   })
 
   test("OpenAI-compatible: malformed JSON is a typed error, not a crash", async () => {

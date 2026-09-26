@@ -38,6 +38,39 @@ export function fromLlm(g: LlmGraph): EntryGraph {
   }
 }
 
+const FIELDS = ["nodes", "edges", "suggestions", "key", "type", "label", "parent", "layout", "from", "to", "kind", "text", "handle", "source", "target"]
+
+/**
+ * Safety net for models that bend the shape in plain JSON mode: garbled
+ * field names ("key 다", "sourceuib") map back to the field they start with,
+ * source/target mean from/to, and missing optional fields get defaults.
+ */
+export function normalizeLlmJson(raw: unknown): unknown {
+  const fix = (v: unknown): unknown => {
+    if (Array.isArray(v)) return v.map(fix)
+    if (!v || typeof v !== "object") return v
+    const out: Record<string, unknown> = {}
+    for (const [k, val] of Object.entries(v)) {
+      const clean = k.trim().toLowerCase()
+      const field = FIELDS.find((f) => clean === f) ?? FIELDS.slice().sort((a, b) => b.length - a.length).find((f) => clean.startsWith(f))
+      if (field && !(field in out)) out[field] = fix(val)
+    }
+    if ("source" in out && !("from" in out)) out.from = out.source
+    if ("target" in out && !("to" in out)) out.to = out.target
+    delete out.source
+    delete out.target
+    return out
+  }
+  const g = fix(raw) as Record<string, unknown>
+  if (!g || typeof g !== "object") return raw
+  const nodes = Array.isArray(g.nodes) ? g.nodes : []
+  return {
+    nodes: nodes.map((n: any) => ({ ...n, parent: n?.parent ?? "", layout: n?.layout ?? "none" })),
+    edges: Array.isArray(g.edges) ? g.edges : [],
+    suggestions: Array.isArray(g.suggestions) ? g.suggestions : [],
+  }
+}
+
 export type BoardSummaryItem = { handle: string; type: string; label: string; parent: string | null }
 
 export type RefineInput = {
