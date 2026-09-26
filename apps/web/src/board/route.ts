@@ -14,7 +14,10 @@ export function route(a: Rect, b: Rect): { d: string; head: string; mid: P } {
   const cb = { x: b.x + b.w / 2, y: b.y + b.h / 2 }
   const dx = cb.x - ca.x
   const dy = cb.y - ca.y
-  const horizontal = Math.abs(dx) * 0.8 >= Math.abs(dy)
+  // Side by side (no horizontal overlap) → leave from the facing side, even when far apart
+  // vertically, so flowchart columns read left to right. Stacked → top/bottom.
+  const overlapX = a.x < b.x + b.w && b.x < a.x + a.w
+  const horizontal = !overlapX || Math.abs(dx) * 0.8 >= Math.abs(dy)
 
   let s: P, e: P, c1: P, c2: P
   if (horizontal) {

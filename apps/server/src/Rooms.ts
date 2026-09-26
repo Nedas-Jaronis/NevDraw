@@ -12,6 +12,7 @@ import {
   NodesUpdated,
   type Point,
   REGISTRY,
+  isImageSrc,
   type ServerMessage,
   type Suggestion,
   SuggestionsUpdated,
@@ -71,6 +72,7 @@ export type Session = {
   readonly discard: Effect.Effect<void>
   readonly moveNode: (id: string, x: number, y: number, final: boolean) => Effect.Effect<void>
   readonly deleteNode: (id: string) => Effect.Effect<void>
+  readonly setImage: (id: string, src: string | null) => Effect.Effect<void>
   readonly leave: Effect.Effect<void>
 }
 
@@ -158,7 +160,7 @@ export const RoomsLive = Layer.effect(
       return [...room.nodes.values()]
         .filter((n) => n.handle)
         .slice(0, 200)
-        .map((n) => ({ handle: n.handle!, type: n.type, label: n.label, parent: handleOf(n.parent) }))
+        .map((n) => ({ handle: n.handle!, type: n.type, label: n.label, parent: handleOf(n.parent), order: n.order }))
     }
 
     const handleInfo = (room: Room): HandleInfo => {
@@ -487,6 +489,17 @@ export const RoomsLive = Layer.effect(
                 const c = room.clients.get(user.id)
                 if (c) yield* Queue.offer(c.outbox, new NodesUpdated({ nodes: [moved] }))
               }
+            }),
+
+          setImage: (id, src) =>
+            Effect.gen(function* () {
+              const n = room.nodes.get(id)
+              if (!n || (src !== null && !isImageSrc(src))) return
+              const { src: _old, ...rest } = n.props
+              const next: BoardNode = { ...n, props: src === null ? rest : { ...rest, src } }
+              room.nodes.set(id, next)
+              yield* store.upsert(roomId, [next])
+              yield* broadcast(room, new NodesUpdated({ nodes: [next] }))
             }),
 
           deleteNode: (id) =>

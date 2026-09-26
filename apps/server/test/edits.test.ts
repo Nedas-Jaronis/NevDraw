@@ -148,3 +148,42 @@ test("a wrapper named after a page is still a plain box (section), even if Jev s
   const g = assemble(pieces, answers, new Map([["@header", { container: true }]]))
   expect(g.nodes.map((n) => n.type)).toEqual(["section"])
 })
+
+describe("positions among siblings", () => {
+  const user = { id: "u", name: "A", color: "#000", cursor: null }
+  const base = (id: string, extra: Record<string, unknown>) => ({
+    id, type: "section" as const, label: id, parent: "page", order: 0, props: {}, x: 0, y: 0, pinned: false, authorId: "x", authorColor: "#000", ...extra,
+  })
+  const page = { ...base("page", { type: "page", parent: null, handle: "@landing-page" }) }
+  const navbar = base("nav", { type: "navbar", order: 0, handle: "@navbar" })
+  const cta = base("cta", { type: "button", order: 1, handle: "@call-to-action" })
+  const board = {
+    byHandle: new Map([["@landing-page", page], ["@navbar", navbar], ["@call-to-action", cta]] as const),
+    byId: new Map([page, navbar, cta].map((n) => [n.id, n])),
+  }
+  const handles = new Map([
+    ["@landing-page", { container: true }],
+    ["@navbar", { container: false }],
+    ["@call-to-action", { container: false }],
+  ])
+  const place = async (text: string) => {
+    const { materialize } = await import("../src/engine/index.ts")
+    const m = materialize({ graph: interpretOffline(text, handles), prev: undefined, anchor: { x: 0, y: 0 }, user, newId: () => "new", board: board as never })
+    return m.nodes[0]!
+  }
+
+  test("the reported case: a hero between @navbar and @call-to-action goes between them", async () => {
+    const hero = await place("@landing-page create a hero section between @navbar and @call-to-action")
+    expect(hero).toMatchObject({ type: "hero", parent: "page" })
+    expect(hero.order).toBeGreaterThan(0)
+    expect(hero.order).toBeLessThan(1)
+  })
+
+  test("above / below / at the top / at the bottom, parent inferred from the sibling", async () => {
+    expect((await place("a banner above @navbar")).order).toBeLessThan(0)
+    expect(await place("an image below @navbar")).toMatchObject({ parent: "page" })
+    expect((await place("an image below @navbar")).order).toBe(0.5)
+    expect((await place("add a footer at the bottom of @landing-page")).order).toBe(2)
+    expect((await place("add a notice at the top of @landing-page")).order).toBe(-1)
+  })
+})

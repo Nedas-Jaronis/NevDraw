@@ -36,6 +36,8 @@ export type Piece = {
   aliasIsName?: boolean
   /** "a checklist: milk, eggs and bread": the element's items. */
   items?: string[]
+  /** "between @a and @b", "above @x", "at the bottom of @x": where it goes among its siblings. */
+  place?: { after?: string; before?: string; parent?: string; end?: "top" | "bottom" }
   /** "wrap @a and @b into one box": this piece is the new container; these move into it ("recent" = what "them" means). */
   wrap?: string[] | "recent"
   /** "it should include @a @b": move these into the container this entry just made. */
@@ -147,11 +149,32 @@ export function normalizeSentence(sentence: string): Sentence {
   }
   const include = INCLUDE.exec(talk)
   if (include && handlesIn(include[1]!).length) return { kind: "include", targets: handlesIn(include[1]!) }
+  const first = HANDLE_FIRST.exec(talk)
+  if (first) return { kind: "text", text: `${first[2]!.replace(CREATE_VERB, "")} in ${first[1]}` }
   const t = (EDIT_START.test(talk) ? talk : talk.replace(CREATE_VERB, "")).replace(META_PREFIX, "").trim()
   if (CONNECT_RECENT.test(t)) return { kind: "connect-recent" }
   const pair = CONNECT_PAIR.exec(t) ?? PAIR_LINKED.exec(t)
   if (pair) return { kind: "text", text: `${pair[1]} connects to ${pair[2]}` }
   return { kind: "text", text: t }
+}
+
+/** "@landing-page: add a hero", "@page create a hero …" → "a hero … in @landing-page". */
+const HANDLE_FIRST = /^(@[a-z0-9][a-z0-9-]*)\s*[:,-]?\s*(?:please\s+)?(?:create|add|make|put|insert|include|place|draw|give it|needs?)\s+(.+)$/i
+
+/** A position phrase at the end of a piece. */
+const PLACE =
+  /\s+(?:(between)\s+(@[a-z0-9][a-z0-9-]*)\s+(?:and|~and~)\s+(@[a-z0-9][a-z0-9-]*)|(above|before|over|on top of)\s+(@[a-z0-9][a-z0-9-]*)|(below|after|under|beneath|underneath)\s+(@[a-z0-9][a-z0-9-]*)|at the (top|bottom|end|start)(?:\s+of\s+(@[a-z0-9][a-z0-9-]*))?)\s*$/i
+
+export function placeOf(text: string): { rest: string; place: NonNullable<Piece["place"]> } | null {
+  const m = PLACE.exec(text)
+  if (!m) return null
+  const rest = text.slice(0, m.index).trim()
+  const lc = (s: string | undefined) => s?.toLowerCase()
+  if (m[1]) return { rest, place: { after: lc(m[2])!, before: lc(m[3])! } }
+  if (m[4]) return { rest, place: { before: lc(m[5])! } }
+  if (m[6]) return { rest, place: { after: lc(m[7])! } }
+  const end = /^(top|start)$/i.test(m[8]!) ? "top" : "bottom"
+  return { rest, place: { end, ...(m[9] ? { parent: lc(m[9])! } : {}) } }
 }
 
 /** Text that alone doesn't make an element, e.g. a half-typed "landing page with a". */
@@ -198,7 +221,8 @@ export function split(text: string): Piece[] {
     const aliases = alias ? aliasItems(alias[2]!) : []
     const aliasIsName = alias ? NAMING.test(alias[1]!) : false
     const firstOfSentence = pieces.length
-    const parts = sentence.split(JOINER)
+    // "between @a and @b" is one position, not a list: keep its "and" away from the joiner.
+    const parts = sentence.replace(/\bbetween\s+(@[a-z0-9][a-z0-9-]*)\s+and\s+(@[a-z0-9][a-z0-9-]*)/gi, "between $1 ~and~ $2").split(JOINER)
     let connector: Connector = "start"
     /** The current arrow kind while listing targets ("writes to B and C"). */
     let kind: EdgeKind | null = null
@@ -224,9 +248,14 @@ export function split(text: string): Piece[] {
         }
         continue
       }
-      const into = INTO.exec(part.trim())
+      // "… in @page" and "… between @a and @b" / "at the bottom of @x", in either order.
+      const whole = part.trim()
+      const outer = INTO.exec(whole)
+      const placed = placeOf(outer ? outer[1]! : whole)
+      const body = placed ? placed.rest : outer ? outer[1]! : whole
+      const into = outer ?? INTO.exec(body)
       // Drop a half-typed joiner at the end ("landing page with" → "landing page").
-      const t = (into ? into[1]! : part)
+      const t = (into && !outer ? into[1]! : body)
         .trim()
         .replace(/[\s,]*\b(with|and|including|containing|featuring|plus|that|which)$/i, "")
         .replace(/[\s,&]+$/, "")
@@ -245,6 +274,7 @@ export function split(text: string): Piece[] {
           text: t,
           connector: prev === null ? "start" : connector === "edge" ? "and" : connector,
           ...(into ? { into: into[2]!.toLowerCase() } : {}),
+          ...(placed ? { place: placed.place } : {}),
         })
         connector = "and"
         kind = null

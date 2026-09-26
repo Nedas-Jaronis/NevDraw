@@ -3,7 +3,8 @@ import type { EntryGraph } from "@rtw/shared"
 import { afterEach, describe, expect, test } from "bun:test"
 import { makeMemoryStore } from "../src/BoardStore.ts"
 import { interpretOffline, materialize } from "../src/engine/index.ts"
-import { ARROW_GAP, FAN_GAP } from "../src/engine/materialize.ts"
+import { ROW_GAP } from "../src/engine/layered.ts"
+import { ARROW_GAP } from "../src/engine/materialize.ts"
 import { split } from "../src/engine/split.ts"
 import { is, startServer, TestClient } from "./helpers.ts"
 
@@ -67,7 +68,7 @@ describe("placement near what it connects to", () => {
   let n = 0
   const newId = () => `id${++n}`
 
-  test("targets sit to the right of their source, fanning out downward", () => {
+  test("targets sit in a column to the right of their source, centered on it", () => {
     const m = materialize({
       graph: interpretOffline("api writes to postgres and publishes to queue"),
       prev: undefined,
@@ -77,9 +78,9 @@ describe("placement near what it connects to", () => {
     })
     const [api, pg, q] = m.nodes
     expect(pg!.x).toBe(api!.x + 240 + ARROW_GAP)
-    expect(pg!.y).toBe(api!.y)
     expect(q!.x).toBe(pg!.x)
-    expect(q!.y).toBe(api!.y + FAN_GAP)
+    expect(q!.y - pg!.y).toBe(ROW_GAP)
+    expect((pg!.y + q!.y) / 2).toBe(api!.y)
     expect(m.edges.map((e) => [e.from, e.to])).toEqual([
       [api!.id, pg!.id],
       [api!.id, q!.id],
