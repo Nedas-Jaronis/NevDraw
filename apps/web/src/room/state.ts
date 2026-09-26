@@ -56,9 +56,15 @@ export function applyServerMessage(state: RoomState, msg: ServerMessage): RoomSt
       const drafts = without(state.drafts, msg.userId)
       return drafts === state.drafts ? state : { ...state, drafts }
     }
-    case "NodesCommitted": {
+    case "NodesCommitted":
+    case "NodesUpdated": {
       const nodes = new Map(state.nodes)
       for (const n of msg.nodes) nodes.set(n.id, n)
+      return { ...state, nodes }
+    }
+    case "NodesRemoved": {
+      const nodes = new Map(state.nodes)
+      for (const id of msg.ids) nodes.delete(id)
       return { ...state, nodes }
     }
   }

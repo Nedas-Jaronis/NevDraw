@@ -14,10 +14,12 @@ export function InputBox(props: {
   return (
     <div className="pointer-events-none absolute inset-x-0 bottom-0 z-40 flex justify-center p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
       <div
+        data-ui
         className="pointer-events-auto w-full max-w-xl rounded-2xl bg-[var(--panel)] shadow-lg"
         style={{ border: `2px solid ${props.color}` }}
       >
         <input
+          id="board-input"
           aria-label="Describe what to add to the board"
           value={text}
           autoFocus

@@ -16,17 +16,42 @@ const isContainer = (n: BoardNode) => REGISTRY[n.type].container
  * dashed in the author's color; committed elements are calm and solid. The
  * same id is kept across draft → commit so Motion animates it in place.
  */
-export function RootView({ item, tree }: { item: Item; tree: Tree }) {
+export function RootView(props: {
+  item: Item
+  tree: Tree
+  selected: boolean
+  dragging: boolean
+  /** This viewer's color, for the selection ring. */
+  accent: string
+  onDelete: () => void
+}) {
+  const { item, tree, selected, dragging, accent } = props
   const { node, draft, typing } = item
   return (
     <motion.div
+      data-root-id={draft ? undefined : node.id}
       initial={{ opacity: 0, scale: 0.94, x: node.x, y: node.y }}
-      animate={{ opacity: 1, scale: 1, x: node.x, y: node.y }}
+      animate={{ opacity: 1, scale: dragging ? 1.01 : 1, x: node.x, y: node.y }}
       exit={{ opacity: 0, scale: 0.94, transition: { duration: 0.16 } }}
-      transition={spring}
-      className="absolute left-0 top-0"
-      style={{ width: isContainer(node) ? CONTAINER_WIDTH : LEAF_WIDTH }}
+      // The dragger's own element tracks the pointer exactly; everyone else's glides.
+      transition={dragging ? { duration: 0 } : spring}
+      className={`absolute left-0 top-0 ${draft ? "" : "cursor-grab active:cursor-grabbing"}`}
+      style={{ width: isContainer(node) ? CONTAINER_WIDTH : LEAF_WIDTH, zIndex: dragging || selected ? 10 : undefined }}
     >
+      {selected && (
+        <>
+          <div className="pointer-events-none absolute -inset-1.5 rounded-[20px]" style={{ boxShadow: `0 0 0 1.5px ${accent}` }} />
+          <button
+            type="button"
+            data-ui
+            aria-label={`Delete ${node.label}`}
+            onClick={props.onDelete}
+            className="absolute -right-3 -top-3 z-10 flex h-6 w-6 items-center justify-center rounded-full border border-[var(--panel-border)] bg-[var(--panel)] text-xs text-[var(--muted)] shadow-sm hover:text-[var(--ink)]"
+          >
+            ✕
+          </button>
+        </>
+      )}
       {typing && (
         <div className="pointer-events-none absolute -top-6 left-1 max-w-[340px] truncate text-xs" style={{ color: node.authorColor }}>
           {typing}

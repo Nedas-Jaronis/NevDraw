@@ -40,7 +40,18 @@ export class Commit extends Schema.TaggedClass<Commit>()("Commit", {}) {}
 /** Esc: throw the current draft away. */
 export class Discard extends Schema.TaggedClass<Discard>()("Discard", {}) {}
 
-export const ClientMessage = Schema.Union(Join, MoveCursor, SetInput, Commit, Discard)
+/** Drag a top-level element. Sent every frame while dragging; `final` on release (then saved). */
+export class MoveNode extends Schema.TaggedClass<MoveNode>()("MoveNode", {
+  id: Schema.String,
+  x: Schema.Number,
+  y: Schema.Number,
+  final: Schema.Boolean,
+}) {}
+
+/** Delete a committed element and everything inside it. */
+export class DeleteNode extends Schema.TaggedClass<DeleteNode>()("DeleteNode", { id: Schema.String }) {}
+
+export const ClientMessage = Schema.Union(Join, MoveCursor, SetInput, Commit, Discard, MoveNode, DeleteNode)
 export type ClientMessage = typeof ClientMessage.Type
 
 // ---------------------------------------------------------------------------
@@ -75,6 +86,15 @@ export class NodesCommitted extends Schema.TaggedClass<NodesCommitted>()("NodesC
   nodes: Schema.Array(BoardNode),
 }) {}
 
+/** Committed nodes changed in place (moves, pins). Last write wins per node. */
+export class NodesUpdated extends Schema.TaggedClass<NodesUpdated>()("NodesUpdated", {
+  nodes: Schema.Array(BoardNode),
+}) {}
+
+export class NodesRemoved extends Schema.TaggedClass<NodesRemoved>()("NodesRemoved", {
+  ids: Schema.Array(Schema.String),
+}) {}
+
 export const ServerMessage = Schema.Union(
   Welcome,
   UserJoined,
@@ -83,6 +103,8 @@ export const ServerMessage = Schema.Union(
   DraftUpdated,
   DraftCleared,
   NodesCommitted,
+  NodesUpdated,
+  NodesRemoved,
 )
 export type ServerMessage = typeof ServerMessage.Type
 
