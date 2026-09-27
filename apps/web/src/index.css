@@ -57,6 +57,14 @@ body {
 .frame-handle:not(.is-editing) {
   display: none;
 }
+/* "Add a note" shows on hover like the handle; an element with a note always shows its icon. */
+.frame-note-add {
+  display: none;
+}
+.frame:hover:not(:has(.frame:hover)) > * > .frame-title .frame-note-add,
+.frame.is-selected > * > .frame-title .frame-note-add {
+  display: inline-flex;
+}
 .frame:hover:not(:has(.frame:hover)) > * > .frame-title .frame-handle,
 .frame.is-selected > * > .frame-title .frame-handle {
   display: inline;

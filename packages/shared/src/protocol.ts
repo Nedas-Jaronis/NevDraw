@@ -70,7 +70,13 @@ export class RenameHandle extends Schema.TaggedClass<RenameHandle>()("RenameHand
   handle: Schema.String,
 }) {}
 
-export const ClientMessage = Schema.Union(Join, MoveCursor, SetInput, Commit, Discard, MoveNode, DeleteNode, SetImage, DropImage, RenameHandle)
+/** Annotate an element ("" removes the note). */
+export class SetNote extends Schema.TaggedClass<SetNote>()("SetNote", {
+  id: Schema.String,
+  note: Schema.String.pipe(Schema.maxLength(2000)),
+}) {}
+
+export const ClientMessage = Schema.Union(Join, MoveCursor, SetInput, Commit, Discard, MoveNode, DeleteNode, SetImage, DropImage, RenameHandle, SetNote)
 export type ClientMessage = typeof ClientMessage.Type
 
 // ---------------------------------------------------------------------------

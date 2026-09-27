@@ -57,7 +57,7 @@ export function openAiCompatible(options: { baseUrl: string; apiKey: string; mod
       body: JSON.stringify({
         model: options.model,
         temperature: 0,
-        reasoning_effort: "low",
+        reasoning_effort: env("LLM_REASONING") ?? "medium",
         response_format: schemaMode
           ? { type: "json_schema", json_schema: { name: "entry_graph", strict: true, schema: LLM_JSON_SCHEMA } }
           : { type: "json_object" },

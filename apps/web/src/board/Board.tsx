@@ -9,6 +9,7 @@ import {
   NodesUpdated,
   type Point,
   RenameHandle,
+  SetNote,
   SetImage,
   SetInput,
   type User,
@@ -93,6 +94,7 @@ export function Board({ roomId, identity }: { roomId: string; identity: Identity
       setImage: (id: string, src: string | null) => send(new SetImage({ id, src })),
       dropImage: (parent: string, src: string) => send(new DropImage({ parent, src })),
       renameHandle: (id: string, handle: string) => send(new RenameHandle({ id, handle })),
+      setNote: (id: string, note: string) => send(new SetNote({ id, note })),
     }),
     [send],
   )
@@ -151,7 +153,8 @@ export function Board({ roomId, identity }: { roomId: string; identity: Identity
   // Space held turns dragging into panning. Typing a character jumps back into the input box.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const typing = (document.activeElement as HTMLElement | null)?.tagName === "INPUT"
+      const active = document.activeElement as HTMLElement | null
+      const typing = active?.tagName === "INPUT" || active?.tagName === "TEXTAREA" || active?.isContentEditable === true
       if (typing) return
       if (e.key === " ") {
         e.preventDefault()

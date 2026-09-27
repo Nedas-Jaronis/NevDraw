@@ -44,6 +44,20 @@ export function editOf(text: string, known: ReadonlySet<string>): EntryPatch | n
   return { target, ...(label ? { label } : {}), ...(type ? { type } : {}), ...(color ? { color } : {}) }
 }
 
+/**
+ * "annotate @x: needs real copy", "add a note to @x saying …", "note on @x:
+ * …", "@x note: …": the annotation for one existing element.
+ */
+export function noteOf(text: string, handles: HandleInfo): EntryPatch[] | null {
+  const m =
+    /^\s*(?:annotate|note(?:\s+on)?|add\s+(?:a|an)\s+(?:note|annotation|comment)\s+(?:to|on|for)|comment\s+on)\s+(@[a-z0-9][a-z0-9-]*)\s*(?::|-|,|\s+(?:saying|that says|with|:))?\s+(.+)$/is.exec(text) ??
+    /^\s*(@[a-z0-9][a-z0-9-]*)\s+(?:note|annotation)\s*:\s*(.+)$/is.exec(text)
+  if (!m) return null
+  const target = m[1]!.toLowerCase()
+  const note = m[2]!.trim().replace(/^["“](.*)["”]$/s, "$1")
+  return handles.has(target) && note ? [{ target, note }] : null
+}
+
 /** Taking something apart: out of its container, or off an arrow. */
 const DETACH =
   /\b(?:detach|un-?attach|disconnect|unlink|unhook|unwire|decouple|separate|remove\s+(?:the\s+)?(?:arrows?|links?|connections?|edges?)|delete\s+(?:the\s+)?(?:arrows?|links?|connections?|edges?)|(?:take|move|pull|get|drag)\b.*\bout\s+of|no\s+longer\s+(?:connected|linked|attached))\b/i

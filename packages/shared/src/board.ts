@@ -18,6 +18,8 @@ export const NodeProps = Schema.Struct({
   src: Schema.optional(Schema.String.pipe(Schema.maxLength(MAX_IMAGE_SRC))),
   /** Accent color (hex) from the prompt: "a red button", "tiffany blue hero", "danger" → red. */
   color: Schema.optional(Schema.String.pipe(Schema.pattern(/^#[0-9a-f]{6}$/i))),
+  /** A person's annotation on this element ("why this is here", "TODO: copy from marketing"). */
+  note: Schema.optional(Schema.String.pipe(Schema.maxLength(2000))),
 })
 export type NodeProps = typeof NodeProps.Type
 
@@ -67,6 +69,8 @@ export const NodePatch = Schema.Struct({
   parent: Schema.optional(Schema.String),
   /** Move out of its container to the top level. */
   detach: Schema.optional(Schema.Boolean),
+  /** Set its annotation. */
+  note: Schema.optional(Schema.String),
   /** Remove the arrows between it and this node id ("*": all its arrows). */
   unlink: Schema.optional(Schema.String),
 })

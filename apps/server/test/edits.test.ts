@@ -1,4 +1,4 @@
-import { Commit, Join, RenameHandle, SetInput } from "@rtw/shared"
+import { Commit, Join, RenameHandle, SetInput, SetNote } from "@rtw/shared"
 import { afterEach, describe, expect, test } from "bun:test"
 import { bulkEditOf, detachOf, editOf } from "../src/engine/edits.ts"
 import { sensibleParents } from "../src/engine/materialize.ts"
@@ -303,4 +303,25 @@ test("retagging: click a tag, type a new one; taken or empty tags are ignored", 
   c.send(new SetInput({ text: "make @sign-in-form red", anchor }))
   const d = await c.waitFor(is("DraftUpdated", (m) => m.draft.text.startsWith("make")))
   expect(d.draft.patches).toEqual([{ id: form!.id, color: "#e03131" }])
+})
+
+test("annotations: typed commands and the protocol", async () => {
+  const { noteOf } = await import("../src/engine/edits.ts")
+  const h = new Map([["@hero", { container: false }]])
+  expect(noteOf("annotate @hero: needs the real photo", h)).toEqual([{ target: "@hero", note: "needs the real photo" }])
+  expect(noteOf("add a note to @hero saying copy from marketing", h)).toEqual([{ target: "@hero", note: "copy from marketing" }])
+  expect(noteOf("@hero note: A/B test this", h)).toEqual([{ target: "@hero", note: "A/B test this" }])
+  expect(noteOf("annotate @nope: x", h)).toBeNull()
+
+  const c = await room()
+  c.send(new SetInput({ text: "a hero", anchor }))
+  c.send(new Commit())
+  const hero = (await c.waitFor(is("NodesCommitted"))).nodes[0]!
+  c.send(new SetNote({ id: hero.id, note: "  hi  " }))
+  const up = await c.waitFor(is("NodesUpdated", (m) => m.nodes.some((n) => n.props.note === "hi")))
+  expect(up.nodes[0]!.id).toBe(hero.id)
+  c.send(new SetInput({ text: `annotate ${hero.handle}: swap the photo`, anchor }))
+  await c.waitFor(is("DraftUpdated", (m) => m.draft.text.startsWith("annotate")))
+  c.send(new Commit())
+  await c.waitFor(is("NodesUpdated", (m) => m.nodes.some((n) => n.props.note === "swap the photo")))
 })

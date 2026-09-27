@@ -8,6 +8,8 @@
  *   bun run arrows            # full pipeline (Jev + LLM)
  *   bun run arrows --instant  # keyword + code only (deterministic)
  *   bun run arrows 5 7        # only these scenarios
+ *   bun run arrows --typing   # type like a person (a key every 40 ms), pause, then Enter
+ *   bun run arrows --typing --pause=300   # …with a shorter pause before Enter
  */
 import { HttpServer } from "@effect/platform"
 import { type BoardEdge, type BoardNode, Commit, Join, SetInput } from "@rtw/shared"
@@ -59,6 +61,10 @@ const SCENARIOS: Array<{ id: string; steps: string[] }> = [
     ],
   },
   {
+    id: "10",
+    steps: ["give me 5 server stack that goes through 2 load balancers, and then connects to 6 databases. each loadbalacer takes 3 databases."],
+  },
+  {
     id: "9",
     steps: ["a landing page with a hero, a features section and a footer", "embed an image inside the hero"],
   },
@@ -67,7 +73,9 @@ const SCENARIOS: Array<{ id: string; steps: string[] }> = [
 const args = process.argv.slice(2)
 const instant = args.includes("--instant")
 const only = args.filter((a) => !a.startsWith("--"))
-const typingPause = instant ? 300 : 3500
+const typing = args.includes("--typing")
+const pauseArg = args.find((a) => a.startsWith("--pause="))
+const typingPause = pauseArg ? Number(pauseArg.slice(8)) : instant ? 300 : typing ? 600 : 3500
 
 const runtime = ManagedRuntime.make(
   makeApp({
@@ -115,15 +123,37 @@ for (const s of SCENARIOS) {
   for (const raw of s.steps) {
     const text = raw.replace(/\{([^}]+)\}/g, (_, w: string) => handleFor(w))
     console.log(`  › ${text}`)
-    c.send(new SetInput({ text, anchor: { x: 0, y: 0 } }))
+    const before = new Map(nodes)
+    const edgesBefore = new Set(edges.keys())
+    if (typing) {
+      for (let i = 1; i <= text.length; i++) {
+        c.send(new SetInput({ text: text.slice(0, i), anchor: { x: 0, y: 0 } }))
+        await Bun.sleep(40)
+      }
+    } else c.send(new SetInput({ text, anchor: { x: 0, y: 0 } }))
     await Bun.sleep(typingPause)
     const t0 = Date.now()
     if (process.env.ARROWS_DEBUG) for (const m of c.received.slice(seen)) console.log("      ", m._tag, JSON.stringify(m).slice(0, Number(process.env.ARROWS_DEBUG) > 1 ? 4000 : 400))
+    // Only a DraftCleared after this Enter counts (typing can clear the draft on the way).
+    sync()
+    c.received.splice(0)
+    seen = 0
     c.send(new Commit())
-    await c.waitFor(is("DraftCleared"), 2000).catch(() => null)
+    await c.waitFor(is("DraftCleared"), 4000).catch(() => null)
     await Bun.sleep(200)
+    if (process.env.ARROWS_DEBUG) for (const m of c.received) console.log("     after Enter:", m._tag, JSON.stringify(m).slice(0, Number(process.env.ARROWS_DEBUG) > 1 ? 4000 : 400))
     sync()
     if (!instant) console.log(`    (committed in ${Date.now() - t0} ms)`)
+    if (s.steps.length > 1) {
+      const label = (id: string) => nodes.get(id)?.label ?? "?"
+      for (const n of nodes.values()) {
+        const was = before.get(n.id)
+        if (!was) console.log(`      + ${n.label} (${n.type})${n.parent ? ` inside ${label(n.parent)}` : ""}`)
+        else if (was.parent !== n.parent || was.props.color !== n.props.color || was.label !== n.label)
+          console.log(`      ~ ${n.label}${n.parent ? ` inside ${label(n.parent)}` : " top-level"}${n.props.color ? ` ${n.props.color}` : ""}`)
+      }
+      for (const e of edges.values()) if (!edgesBefore.has(e.id)) console.log(`      + ${label(e.from)} —${e.label ?? e.kind}→ ${label(e.to)}`)
+    }
     // DraftCleared from this commit is consumed; the next step waits for a fresh one.
     c.received.splice(0)
     seen = 0
