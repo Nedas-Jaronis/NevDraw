@@ -3,7 +3,7 @@ import { TypeSafeClient } from "@typesafe-ai/sdk"
 import { Context, Data, Duration, Effect, Layer } from "effect"
 import type { PieceAnswers } from "../engine/answers.ts"
 import { env, envNumber } from "../env.ts"
-import { pieceQuestions } from "./jevQuestions.ts"
+import { pieceQuestions, sketchQuestions } from "./jevQuestions.ts"
 
 /** What Jev sees for one piece. Also the cache key, so keep it small and deterministic. */
 export type PieceState = {
@@ -21,6 +21,8 @@ export class Jev extends Context.Tag("Jev")<
     readonly enabled: boolean
     readonly model: string
     readonly answer: (state: PieceState) => Effect.Effect<PieceAnswers, JevError>
+    /** Drawing mode: which drawable component a sketch description shows (not the ones excluded). */
+    readonly sketch?: (input: { sketch: string; exclude: readonly string[] }) => Effect.Effect<{ component: string; confidence: number }, JevError>
   }
 >() {}
 
@@ -91,6 +93,17 @@ export const JevFromEnv = Layer.suspend(() => {
         catch: (e) => new JevError({ reason: e instanceof Error ? e.message : String(e) }),
       }).pipe(
         Effect.map((res) => toPieceAnswers(res.answers)),
+        Effect.timeoutFail({ duration: Duration.millis(timeout + 250), onTimeout: () => new JevError({ reason: "timeout" }) }),
+      ),
+    sketch: ({ sketch, exclude }) =>
+      Effect.tryPromise({
+        try: (signal) => client.systemOne({ state: { sketch }, questions: sketchQuestions(exclude) }, { signal }),
+        catch: (e) => new JevError({ reason: e instanceof Error ? e.message : String(e) }),
+      }).pipe(
+        Effect.map((res) => {
+          const a = res.answers as { component: { choice: string; confidence: number } }
+          return { component: a.component.choice, confidence: a.component.confidence }
+        }),
         Effect.timeoutFail({ duration: Duration.millis(timeout + 250), onTimeout: () => new JevError({ reason: "timeout" }) }),
       ),
   })

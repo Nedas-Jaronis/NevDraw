@@ -71,7 +71,7 @@ describe("@ references in the engine", () => {
 })
 
 describe("materialize against the board", () => {
-  const user = { id: "u", name: "A", color: "#000", cursor: null, typing: false }
+  const user = { id: "u", name: "A", color: "#000", cursor: null, typing: false, drawing: false }
   const base = (id: string, extra: Partial<BoardNode>): BoardNode => ({
     id,
     type: "page",

@@ -1,5 +1,6 @@
 import { ACCENT_NAMES, ACCENTS, NODE_TYPES, type NodeType, REGISTRY } from "@rtw/shared"
 import { choice, noul } from "@typesafe-ai/sdk"
+import { DRAWABLE } from "../engine/sketch.ts"
 
 /**
  * The per-piece Jev question set. Every piece of an entry gets the same
@@ -52,3 +53,19 @@ export const pieceQuestions = {
 
 export type PieceQuestions = typeof pieceQuestions
 export const PIECE_QUESTION_COUNT = Object.keys(pieceQuestions).length
+
+/**
+ * Drawing mode: which component a sketch shows, from the words code wrote
+ * about its geometry. Options are the drawable registry types, each with its
+ * template's description and how it's drawn; `exclude` asks for the next-best.
+ */
+export function sketchQuestions(exclude: readonly string[] = []) {
+  const options = Object.fromEntries(
+    Object.entries(DRAWABLE)
+      .filter(([k]) => !exclude.includes(k))
+      .map(([k, d]) => [k, `${REGISTRY[d.type].describe}. Drawn as ${d.drawn}`]),
+  ) as Record<string, string>
+  return {
+    component: choice("Which interface element is `sketch` a drawing of", { ...options, none: "None of these fit the drawing" }),
+  } as const
+}
