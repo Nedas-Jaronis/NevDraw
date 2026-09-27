@@ -34,5 +34,6 @@ export const makeApp = (options: {
     Layer.provide(ClassifierLive.pipe(Layer.provide(options.jev ?? JevFromEnv))),
     Layer.provide(options.refiner ?? RefinerFromEnv),
     Layer.provide(options.store ?? sqliteStore(env("DB_PATH") ?? DEFAULT_DB_PATH)),
-    Layer.provideMerge(BunHttpServer.layer({ port: options.port })),
+    // Opening a public tunnel ("Go remote") takes ~10 s: longer than Bun's default idle timeout.
+    Layer.provideMerge(BunHttpServer.layer({ port: options.port, idleTimeout: 120 })),
   )
