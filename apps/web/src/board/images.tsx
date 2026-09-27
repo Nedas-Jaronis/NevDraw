@@ -8,6 +8,8 @@ export const BoardActions = createContext<{
   dropImage: (parent: string, src: string) => void
   /** Retag an element with a new @handle. */
   renameHandle: (id: string, handle: string) => void
+  /** Annotate an element ("" removes the note). */
+  setNote: (id: string, note: string) => void
 } | null>(null)
 
 /** Shrink a picked file to a data-URL that fits the sync limit. */

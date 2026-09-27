@@ -288,3 +288,23 @@ describe("an LLM answer that only lists changes never wipes the draft", () => {
     expect(g.patches).toEqual([])
   })
 })
+
+test("handles the model invents for new elements are local keys, so their arrows survive", async () => {
+  const { referToExisting } = await import("../src/engine/index.ts")
+  const handles = new Map([["@signup-form", { container: true, type: "form" as const, label: "Signup form", parent: "@signup-page" }]])
+  const g = referToExisting(
+    {
+      nodes: [
+        { key: "@signup-form", type: "form", label: "Signup form", parent: "@signup-page", props: {} },
+        { key: "@auth-service", type: "service", label: "Auth service", parent: null, props: {} },
+      ],
+      edges: [{ from: "@signup-form", to: "@auth-service", kind: "calls" }],
+      suggestions: [],
+      patches: [],
+    },
+    handles,
+    "the signup form posts to an auth service",
+  )
+  expect(g.nodes.map((n) => [n.key, n.label])).toEqual([["new:auth-service", "Auth service"]])
+  expect(g.edges).toEqual([{ from: "@signup-form", to: "new:auth-service", kind: "calls" }])
+})

@@ -698,3 +698,147 @@ function Sketch({ node, editable }: { node: BoardNode; editable: boolean }) {
       )
   }
 }
+
+/** What a form is for, from its name: the fields, button and footer a real one would have. */
+const FORM_KINDS: Array<{ test: RegExp; title: string; sub: string; fields: string[]; submit: string; footer?: string }> = [
+  { test: /sign\s*up|register|create account|join/i, title: "Create your account", sub: "Start in less than a minute.", fields: ["Full name", "Email", "Password"], submit: "Sign up", footer: "Already have an account? Log in" },
+  { test: /log\s*in|sign\s*in|auth/i, title: "Welcome back", sub: "Log in to continue.", fields: ["Email", "Password"], submit: "Log in", footer: "Forgot password?" },
+  { test: /contact|message|support|feedback/i, title: "Get in touch", sub: "We usually reply within a day.", fields: ["Name", "Email", "Message"], submit: "Send" },
+  { test: /checkout|payment|billing|card/i, title: "Payment", sub: "All transactions are secure.", fields: ["Card number", "Expiry", "CVC"], submit: "Pay now" },
+  { test: /newsletter|subscribe|waitlist/i, title: "Stay in the loop", sub: "No spam, unsubscribe anytime.", fields: ["Email"], submit: "Subscribe" },
+  { test: /confirm|delete|remove/i, title: "Are you sure?", sub: "This can't be undone.", fields: [], submit: "Confirm" },
+]
+
+/**
+ * An empty form or modal renders as a finished dialog card: heading, labelled
+ * fields and a primary button. Its items (from the prompt) are the fields.
+ */
+export function FormCard({ node }: { node: BoardNode }) {
+  const kind = FORM_KINDS.find((k) => k.test.test(node.label))
+  const fields = node.props.items?.length ? node.props.items : (kind?.fields ?? ["Name", "Email"])
+  const title = kind?.title ?? node.label
+  return (
+    <div className="relative mx-auto w-full max-w-[260px] rounded-2xl border border-[var(--hairline)] bg-[var(--panel)] p-4 shadow-[0_12px_32px_-16px_rgba(0,0,0,0.35)]">
+      {node.type === "modal" && <span className="absolute right-3 top-2.5 text-xs text-[var(--muted)]" aria-hidden>✕</span>}
+      <div className="text-center text-sm font-semibold">{title}</div>
+      {kind?.sub && <div className="mt-0.5 text-center text-[10px] text-[var(--muted)]">{kind.sub}</div>}
+      <div className="mt-3 flex flex-col gap-2">
+        {fields.slice(0, 6).map((f, i) => (
+          <label key={`${i}-${f}`} data-ui className="flex flex-col gap-1 text-[10px] text-[var(--muted)]">
+            {f}
+            {/message|comment|note/i.test(f) ? (
+              <textarea data-ui rows={2} className={`w-full resize-none px-2 py-1 text-xs text-[var(--ink)] outline-none focus:border-[var(--a)] ${field}`} />
+            ) : (
+              <input
+                data-ui
+                type={/password/i.test(f) ? "password" : /email/i.test(f) ? "email" : "text"}
+                className={`h-7 w-full px-2 text-xs text-[var(--ink)] outline-none focus:border-[var(--a)] ${field}`}
+              />
+            )}
+          </label>
+        ))}
+      </div>
+      <button type="button" data-ui className="mt-3 w-full rounded-lg bg-[var(--a)] py-1.5 text-xs font-medium text-[var(--on-a)] transition active:scale-[0.98]">
+        {kind?.submit ?? "Submit"}
+      </button>
+      {kind?.footer && <div className="mt-2 text-center text-[10px] text-[var(--muted)]">{kind.footer}</div>}
+    </div>
+  )
+}
+
+/** "Sidebar", "side nav", "left menu": the column beside a page's content. */
+export const SIDEBAR = /\b(side\s*bar|side\s*nav|side\s*menu|nav(?:igation)?\s*(?:panel|rail|drawer)|left\s*(?:menu|nav|panel)|drawer)\b/i
+const FOOTER = /\bfooter\b/i
+
+/**
+ * An empty section drawn as what its name says (a sidebar's nav, a footer's
+ * links, content's text, features, pricing, FAQ), not a blank box. Its items
+ * (from the prompt) fill it in.
+ */
+export function EmptySection({ node }: { node: BoardNode }) {
+  const items = node.props.items
+  const label = node.label
+  if (SIDEBAR.test(label))
+    return (
+      <div className="flex flex-col gap-0.5">
+        {(items?.length ? items : ["Overview", "Getting started", "Guides", "API reference", "Settings"]).slice(0, 8).map((x, i) => (
+          <div
+            key={`${i}-${x}`}
+            className={`truncate rounded-md px-2 py-1 text-[11px] ${i === 0 ? "bg-[var(--a)]/15 font-medium text-[var(--ink)]" : "text-[var(--muted)]"}`}
+          >
+            {x}
+          </div>
+        ))}
+      </div>
+    )
+  if (FOOTER.test(label))
+    return (
+      <div className="flex items-center gap-3 text-[10px] text-[var(--muted)]">
+        {(items?.length ? items : ["About", "Blog", "Privacy", "Terms"]).slice(0, 6).map((x, i) => (
+          <span key={`${i}-${x}`}>{x}</span>
+        ))}
+        <span className="ml-auto">© 2026</span>
+      </div>
+    )
+  if (/\b(features?|benefits|services)\b/i.test(label))
+    return (
+      <div className="grid grid-cols-3 gap-2">
+        {(items?.length ? items : ["Fast", "Secure", "Simple"]).slice(0, 6).map((x, i) => (
+          <div key={`${i}-${x}`} className="flex flex-col gap-1 rounded-lg bg-[var(--ink)]/[0.04] p-2">
+            <div className="h-4 w-4 rounded-md bg-[var(--a)]/30" />
+            <div className="truncate text-[10px] font-medium">{x}</div>
+            <div className={`h-1 w-4/5 ${bar}`} />
+          </div>
+        ))}
+      </div>
+    )
+  if (/\bpricing|plans?|tiers?\b/i.test(label))
+    return (
+      <div className="grid grid-cols-3 gap-2">
+        {(items?.length ? items : ["Free", "Pro", "Team"]).slice(0, 4).map((x, i) => (
+          <div key={`${i}-${x}`} className={`flex flex-col items-center gap-1 rounded-lg p-2 ${i === 1 ? "bg-[var(--a)]/15" : "bg-[var(--ink)]/[0.04]"}`}>
+            <div className="text-[10px] font-medium">{x}</div>
+            <div className="text-xs font-semibold">${[0, 12, 29, 99][i]}</div>
+            <div className={`h-1 w-3/4 ${bar}`} />
+          </div>
+        ))}
+      </div>
+    )
+  if (/\b(faq|questions)\b/i.test(label))
+    return (
+      <div className="flex flex-col divide-y divide-[var(--hairline)]">
+        {(items?.length ? items : ["How does it work?", "Can I cancel anytime?", "Is there a free plan?"]).slice(0, 6).map((x, i) => (
+          <div key={`${i}-${x}`} className="flex items-center justify-between py-1 text-[11px]">
+            <span className="truncate">{x}</span>
+            <span className="text-[var(--muted)]">+</span>
+          </div>
+        ))}
+      </div>
+    )
+  if (/\b(content|main|body|article|docs?|text|about|blog)\b/i.test(label))
+    return (
+      <div className="flex flex-col gap-1.5">
+        <div className={`h-2.5 w-2/5 ${bar}`} />
+        <div className={`h-1.5 w-full ${bar}`} />
+        <div className={`h-1.5 w-11/12 ${bar}`} />
+        <div className={`h-1.5 w-4/5 ${bar}`} />
+        <div className={`mt-1 h-1.5 w-full ${bar}`} />
+        <div className={`h-1.5 w-3/5 ${bar}`} />
+      </div>
+    )
+  return <div className="h-16 rounded-lg border border-dashed border-[var(--hairline)]" />
+}
+
+/**
+ * A page with a sidebar lays out like one: header on top, the sidebar beside
+ * the main column, the footer across the bottom. Null when there's no sidebar.
+ */
+export function sidebarLayout<T extends { node: BoardNode }>(kids: readonly T[]) {
+  const side = kids.find((k) => SIDEBAR.test(k.node.label))
+  if (!side || kids.length < 2) return null
+  const at = kids.indexOf(side)
+  const top = kids.filter((k, i) => i < at && (k.node.type === "navbar" || /\b(header|top\s*bar|nav\s*bar)\b/i.test(k.node.label)))
+  const bottom = kids.filter((k) => k !== side && FOOTER.test(k.node.label))
+  const main = kids.filter((k) => k !== side && !top.includes(k) && !bottom.includes(k))
+  return { top, side, main, bottom }
+}

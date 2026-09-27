@@ -40,6 +40,8 @@ export const LlmGraph = Schema.Struct({
       detach: Schema.Boolean,
       /** Remove the arrows between it and this @handle ("*" = all its arrows), else "". */
       unlink: Schema.String,
+      /** Its annotation ("annotate @x: …"), else "". */
+      note: Schema.String,
     }),
   ),
 })
@@ -75,12 +77,13 @@ export function fromLlm(g: LlmGraph): EntryGraph {
         ...(/^#[0-9a-f]{6}$/i.test(p.color.trim()) ? { color: p.color.trim().toLowerCase() } : {}),
         ...(p.parent.trim() ? { parent: p.parent.trim() } : {}),
         ...(p.detach ? { detach: true } : {}),
+        ...(p.note.trim() ? { note: p.note.trim().slice(0, 2000) } : {}),
         ...(p.unlink.trim() === "*" || p.unlink.trim().startsWith("@") ? { unlink: p.unlink.trim().toLowerCase() } : {}),
       })),
   }
 }
 
-const FIELDS = ["nodes", "edges", "suggestions", "patches", "element", "after", "before", "key", "type", "label", "parent", "layout", "items", "of", "color", "from", "to", "kind", "text", "handle", "source", "target", "detach", "unlink"]
+const FIELDS = ["nodes", "edges", "suggestions", "patches", "element", "after", "before", "key", "type", "label", "parent", "layout", "items", "of", "color", "from", "to", "kind", "text", "handle", "source", "target", "detach", "unlink", "note"]
 
 /**
  * Safety net for models that bend the shape in plain JSON mode: garbled
@@ -127,6 +130,7 @@ export function normalizeLlmJson(raw: unknown): unknown {
       parent: String(p?.parent ?? ""),
       detach: p?.detach === true || p?.detach === "true",
       unlink: String(p?.unlink ?? ""),
+      note: String(p?.note ?? ""),
     })),
   }
 }
@@ -149,14 +153,15 @@ nodes: every element the text describes, nothing more.
 - type is one of these (pick the most specific; use box only when nothing fits):
 ${NODE_TYPES.map((t) => `  ${t}: ${REGISTRY[t].describe}`).join("\n")}
 - label: a short name a person would write on the box (e.g. "Landing page", "Pricing table", "Postgres").
-- parent: the key of the element it sits inside, an existing @handle it sits inside, or "" for top level. Only page, section, form, card and modal hold children. Architecture elements are never children of UI, but a group the text names holds its members: "a stack / cluster / pool / group of 5 servers" → a section ("Servers stack") with Server 1..5 inside it; arrows to or from the group go to or from each member.
+- parent: the key of the element it sits inside, an existing @handle it sits inside, or "" for top level. Only page, section, form, card and modal hold children. Architecture elements are never children of UI, but a group the text names holds its members: "a stack / cluster / pool / group of 5 servers" → a section ("Servers stack") with Server 1..5 inside it; arrows to or from the group go to or from each member. The group holds only its members: whatever they connect to (load balancers, databases) stays top-level.
 - layout: "row", "grid" or "stack" when the text asks how a container arranges its children, otherwise "none".
 - Repeated items ("three pricing cards") become that many separate nodes inside one section.
 - Position: the board lists each element's parent and its "order" among siblings (the page's top-to-bottom structure). "between @navbar and @call-to-action" → parent = their parent, after "@navbar", before "@call-to-action"; "above @x" → before "@x"; "below @x" → after "@x"; otherwise after and before are "".
-- Systems: follow the order the text states, literally. "5 servers connected to a load balancer which is then connected to 3 databases" → Server 1..5 each → Load balancer → each of Database 1..3. "a load balancer in front of 5 servers" → load balancer → each server. Repeated system pieces are separate, numbered nodes ("Server 1", "Server 2"). Never chain edges between siblings (server 1 → server 2) unless the text says so.
+- Systems: follow the order the text states, literally. "5 servers connected to a load balancer which is then connected to 3 databases" → Server 1..5 each → Load balancer → each of Database 1..3. "a load balancer in front of 5 servers" → load balancer → each server. Repeated system pieces are separate, numbered nodes ("Server 1", "Server 2"). Never chain edges between siblings (server 1 → server 2, load balancer 1 → load balancer 2) unless the text says so: repeated pieces at one step of the flow are parallel.
+- Topology: "A goes through / via N Bs, then to Cs" → every A → every B, and the Bs → the Cs (A never skips to C). "each B takes / handles / serves / gets K Cs" splits the Cs between the Bs in order: B1 → C1..CK, B2 → C(K+1)..C(2K); without such a split every B → every C. "each A connects to its own C" pairs them one-to-one.
 - "all / every / them" + a color on existing elements → one patch per element (all of them, or those of the named type).
 - Numbers with units are values, not counts: "25 min timer" is one timer labelled "25 min timer".
-- Collections: "a table/list of X" is ONE node of type table/list with "of" = X's type and "items" = its rows. Compute values the text asks for: "a table of timers with increments of 15" → type "table", of "timer", items ["15 min","30 min","45 min","60 min"]. Lists after a colon are items: "a checklist: milk, eggs" → items ["Milk","Eggs"]. Use items for poll options, tab names, select options and table rows too. Otherwise items is [] and "of" is "none".
+- Collections: "a table/list of X" is ONE node of type table/list with "of" = X's type and "items" = its rows. Compute values the text asks for: "a table of timers with increments of 15" → type "table", of "timer", items ["15 min","30 min","45 min","60 min"]. Lists after a colon are items: "a checklist: milk, eggs" → items ["Milk","Eggs"]. Use items for poll options, tab names, select options and table rows too, and for what a named part of a page lists: a sidebar's or navbar's links, a footer's links, a form's fields ("a signup form with name, email and password" → one form with items ["Name","Email","Password"]). Otherwise items is [] and "of" is "none".
 - color: "#rrggbb" when the text names a color or clearly implies one, else "". Use this palette: ${ACCENT_NAMES.map((a) => `${a} ${ACCENTS[a].hex}`).join(", ")} ("delete button" → red, "success banner" → green, "dark mode" → dark). Don't color whole pages or sections unless the text asks.
 - Clarifications name the listed elements in order: "a server and a database, being server and sql" → "Server" and "SQL Database"; "a database called postgres" → "Postgres".
 - Ignore conversation and meta words ("can you create a flowchart with …" → just the elements).
@@ -166,11 +171,11 @@ edges: relationships between elements, as keys or @handles, with kind one of: ${
 - Every subject gets its own arrow: "the mobile app and the web app both call the gateway" → two edges. Resolve pronouns and chains ("the checkout calls stripe, then it emails the user via sendgrid" → checkout → stripe, checkout → sendgrid). A service named after "via / using / through" is an element with an arrow to it, not part of a label.
 - Connecting is never nesting: an element that has an arrow to or from something is not its child.
 - A new element placed "between" two connected elements goes in the flow: "a cache between @api and @db" → @api → cache → @db.
-- Headings and framing are not elements: "monolith: a web app calls an api" → just the web app and the api.
+- Headings and framing are not elements: "monolith: a web app calls an api" → just the web app and the api, with no "Monolith" node at all.
 
 Pronouns: "them", "these", "both", "it" refer to the @handles under "recent" (what this person added last). "Connect them" means edges between those elements, in a sensible flow direction, and no new nodes.
 
-Changes to existing elements go in "patches", never as new nodes: "make @x red" → {element "@x", color red}; "rename @x to Checkout" → label; "turn @x into a stopwatch" → type (only change type when the text explicitly says turn into / convert to / change it to a; "make @x a red clock" is just a color); "wrap/group @a and @b into one box" or "…it should include @a @b" → a new container node plus a patch per element with parent = that container's key. "…inside @x" narrows "all / every" to the elements inside @x ("turn all servers inside @stack blue" → the servers inside @stack, never @stack itself). Taking things apart: "detach / unattach / take @a out of @b" when @a sits inside @b → {element "@a", detach true}; "disconnect / unlink @a from @b" or "remove the arrow between @a and @b" → {element "@a", unlink "@b"}; "disconnect @a" from everything → unlink "*". Unused patch fields are "" (type "none", detach false).
+Changes to existing elements go in "patches", never as new nodes: "make @x red" → {element "@x", color red}; "rename @x to Checkout" → label; "turn @x into a stopwatch" → type (only change type when the text explicitly says turn into / convert to / change it to a; "make @x a red clock" is just a color); "wrap/group @a and @b into one box" or "…it should include @a @b" → a new container node plus a patch per element with parent = that container's key. "…inside @x" narrows "all / every" to the elements inside @x ("turn all servers inside @stack blue" → the servers inside @stack, never @stack itself). Taking things apart: "detach / unattach / take @a out of @b" when @a sits inside @b → {element "@a", detach true}; "disconnect / unlink @a from @b" or "remove the arrow between @a and @b" → {element "@a", unlink "@b"}; "disconnect @a" from everything → unlink "*". Notes: "annotate @x: …" / "add a note to @x saying …" → {element "@x", note "…"}. Unused patch fields are "" (type "none", detach false).
 
 References: the board already has the elements listed under "board". Refer to them only by their exact @handle, never invent handles, and never re-create an element that the text refers to by @handle.
 When plain text clearly names an existing board element by its label (e.g. "the servers stack" while @servers-stack exists, "postgres" while @postgres exists) in a relationship, use that @handle as the edge end instead of creating a duplicate, and add a suggestion {"text": the words used, "handle": the @handle}. Only create a new node for it when the text asks for a new one ("add another postgres").

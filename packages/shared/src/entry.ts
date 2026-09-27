@@ -48,6 +48,8 @@ export const EntryPatch = Schema.Struct({
   parent: Schema.optional(Schema.String),
   /** "take @a out of @b": move it out of its container to the top level. */
   detach: Schema.optional(Schema.Boolean),
+  /** "annotate @x: needs real copy": its annotation. */
+  note: Schema.optional(Schema.String),
   /** "disconnect @a from @b": remove the arrows between it and this @handle ("*": all its arrows). */
   unlink: Schema.optional(Schema.String),
 })

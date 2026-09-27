@@ -2,7 +2,7 @@ import { REGISTRY } from "@rtw/shared"
 import type { EntryGraph } from "@rtw/shared"
 import type { PieceState } from "../classify/Jev.ts"
 import { keywordAnswers, type PieceAnswers } from "./answers.ts"
-import { detachOf } from "./edits.ts"
+import { detachOf, noteOf } from "./edits.ts"
 import { assemble, classificationText, type HandleInfo } from "./assemble.ts"
 import { type Piece, split } from "./split.ts"
 import { type PieceMemory, stabilize } from "./stabilize.ts"
@@ -102,7 +102,7 @@ const labelKey = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim
 
 /**
  * Elements that already exist are references, not new elements: a node keyed
- * by an @handle, or named like an existing element when the text says "the
+ * by an existing @handle (one keyed by an invented handle is new, under a local key), or named like an existing element when the text says "the
  * <name>" (plus containers named like existing ones that the text never
  * mentions: context the model added).
  * "a signup page" (a new one) stays new. Arrows and parents are re-pointed.
@@ -114,7 +114,8 @@ export function referToExisting(graph: EntryGraph, handles: HandleInfo, text: st
   const alias = new Map<string, string>()
   for (const n of graph.nodes) {
     if (n.key.startsWith("@")) {
-      if (handles.has(n.key.toLowerCase())) alias.set(n.key, n.key.toLowerCase())
+      // An existing element, or a handle the model invented for a new one (then it's just its key).
+      alias.set(n.key, handles.has(n.key.toLowerCase()) ? n.key.toLowerCase() : `new:${n.key.slice(1)}`)
       continue
     }
     const name = labelKey(n.label)
@@ -135,9 +136,10 @@ export function referToExisting(graph: EntryGraph, handles: HandleInfo, text: st
   return {
     ...graph,
     nodes: graph.nodes
-      .filter((n) => !alias.has(n.key))
+      .filter((n) => !alias.has(n.key) || alias.get(n.key)!.startsWith("new:"))
       .map((n) => ({
         ...n,
+        key: to(n.key),
         parent: n.parent === null ? null : to(n.parent),
         ...(n.after ? { after: to(n.after) } : {}),
         ...(n.before ? { before: to(n.before) } : {}),
@@ -164,7 +166,7 @@ export function interpret(input: {
   memory: ReadonlyMap<number, PieceMemory>
 }) {
   // "detach @a from @b", "disconnect @a and @b": one command, not a sentence to split.
-  const detach = detachOf(input.text, input.handles)
+  const detach = noteOf(input.text, input.handles) ?? detachOf(input.text, input.handles)
   if (detach) return { graph: { nodes: [], edges: [], suggestions: [], patches: detach }, memory: new Map<number, PieceMemory>(), missing: [], debug: [], pieces: [] }
   const pieces = split(input.text)
   const states = pieceStates(pieces, [...input.handles.keys()], input.handles)

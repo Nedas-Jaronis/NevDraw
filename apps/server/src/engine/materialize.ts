@@ -251,6 +251,7 @@ export function materialize(input: {
       ...(p.color && /^#[0-9a-f]{6}$/i.test(p.color) ? { color: p.color.toLowerCase() } : {}),
       ...(validParent ? { parent: validParent } : {}),
       ...(p.detach && target.parent !== null ? { detach: true } : {}),
+      ...(p.note?.trim() ? { note: p.note.trim() } : {}),
       ...(p.unlink === "*" ? { unlink: "*" } : p.unlink && board.byHandle.get(p.unlink) ? { unlink: board.byHandle.get(p.unlink)!.id } : {}),
     }
     if (Object.keys(patch).length > 1) patches.push(patch)

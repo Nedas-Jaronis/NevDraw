@@ -18,7 +18,23 @@ const LABELS: Record<string, string> = {
  * straight onto the SVG, so arrows stay glued through drags, springs and
  * reflow without re-rendering React.
  */
-export function EdgeLayer({ edges, camera }: { edges: EdgeItem[]; camera: Camera }) {
+const labelOf = (e: EdgeItem["edge"]) => e.label ?? LABELS[e.kind] ?? e.kind
+
+/** Arrows between the same two elements in the same direction draw as one: "reads / writes". */
+function merged(edges: EdgeItem[]): Array<EdgeItem & { text: string }> {
+  const out = new Map<string, EdgeItem & { text: string }>()
+  for (const item of edges) {
+    const key = `${item.edge.from}>${item.edge.to}>${item.draft ? "d" : "c"}`
+    const had = out.get(key)
+    const text = labelOf(item.edge)
+    if (!had) out.set(key, { ...item, text })
+    else if (!had.text.split(" / ").includes(text)) had.text = `${had.text} / ${text}`
+  }
+  return [...out.values()]
+}
+
+export function EdgeLayer({ edges: all, camera }: { edges: EdgeItem[]; camera: Camera }) {
+  const edges = merged(all)
   const cam = useRef(camera)
   cam.current = camera
   const groups = useRef(new Map<string, SVGGElement>())
@@ -57,7 +73,7 @@ export function EdgeLayer({ edges, camera }: { edges: EdgeItem[]; camera: Camera
 
   return (
     <svg className="pointer-events-none absolute left-0 top-0 overflow-visible" width="1" height="1" aria-hidden>
-      {edges.map(({ edge, draft }) => {
+      {edges.map(({ edge, draft, text }) => {
         const color = draft ? edge.authorColor : "var(--edge)"
         return (
           <g
@@ -78,7 +94,7 @@ export function EdgeLayer({ edges, camera }: { edges: EdgeItem[]; camera: Camera
               strokeWidth={4}
               paintOrder="stroke"
             >
-              {edge.label ?? LABELS[edge.kind] ?? edge.kind}
+              {text}
             </text>
           </g>
         )

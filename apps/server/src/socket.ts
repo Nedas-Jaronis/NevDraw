@@ -56,6 +56,8 @@ export const roomSocket = Effect.gen(function* () {
         return session.dropImage(msg.parent, msg.src)
       case "RenameHandle":
         return session.renameHandle(msg.id, msg.handle)
+      case "SetNote":
+        return session.setNote(msg.id, msg.note)
     }
   }
 

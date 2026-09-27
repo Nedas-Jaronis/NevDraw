@@ -91,6 +91,8 @@ export type Session = {
   readonly dropImage: (parent: string, src: string) => Effect.Effect<void>
   /** Give an element a new @handle; ignored when it's empty or taken. */
   readonly renameHandle: (id: string, handle: string) => Effect.Effect<void>
+  /** Annotate an element ("" removes the note). */
+  readonly setNote: (id: string, note: string) => Effect.Effect<void>
   readonly leave: Effect.Effect<void>
 }
 
@@ -117,7 +119,7 @@ export const RoomsLive = Layer.effect(
     const refiner = yield* Refiner
     // Live probe 2026-09-26 (gpt-oss-120b on Cerebras): p50 ≈ 360–470 ms.
     const llmDebounce = envNumber("LLM_DEBOUNCE_MS") ?? 900
-    const commitWait = envNumber("LLM_COMMIT_WAIT_MS") ?? 600
+    const commitWait = envNumber("LLM_COMMIT_WAIT_MS") ?? 2500
     const rooms = new Map<string, Room>()
 
     const broadcast = (room: Room, msg: ServerMessage, exceptId?: string) =>
@@ -272,6 +274,8 @@ export const RoomsLive = Layer.effect(
         // The LLM cleanup pass: its pending fiber, and its result for one exact text.
         let llmFiber: Fiber.RuntimeFiber<void> | null = null
         let llmResult: { text: string; graph: EntryGraph } | null = null
+        /** The LLM request in flight and the text it's for: Enter waits for it instead of starting over. */
+        let refining: { text: string; result: Deferred.Deferred<EntryGraph | null> } | null = null
         /** The last render parsed an explicit command (edit / wrap / include): no LLM rewrite. */
         let explicitCommand = false
         /** The instant (Jev/keyword) graph last shown, so the LLM can keep its keys. */
@@ -312,6 +316,19 @@ export const RoomsLive = Layer.effect(
             board: boardSummary(room),
             recent: recentHandles(),
             draft: (lastGraph?.nodes ?? []).map((n) => ({ key: n.key, type: n.type, label: n.label, parent: n.parent })),
+          })
+
+        /** One LLM request whose answer anyone can wait on (null when it fails or is cancelled). */
+        const refineShared = (text: string) =>
+          Effect.gen(function* () {
+            const result = yield* Deferred.make<EntryGraph | null>()
+            refining = { text, result }
+            const graph = yield* refine(text).pipe(
+              Effect.catchAll(() => Effect.succeed(null)),
+              Effect.onInterrupt(() => Deferred.succeed(result, null)),
+            )
+            yield* Deferred.succeed(result, graph)
+            return graph
           })
 
         const clearDraft = Effect.suspend(() => {
@@ -413,10 +430,11 @@ export const RoomsLive = Layer.effect(
                 // After a longer pause, the LLM cleans up what Jev can't (pronouns, chains, phrasing).
                 llmFiber = yield* Effect.fork(
                   Effect.sleep(llmDebounce).pipe(
-                    Effect.zipRight(refine(text)),
+                    Effect.zipRight(refineShared(text)),
                     Effect.flatMap((graph) =>
                       stillLatest(
                         Effect.suspend(() => {
+                          if (!graph) return Effect.void
                           llmResult = { text, graph }
                           return render(text, anchor)
                         }),
@@ -430,19 +448,23 @@ export const RoomsLive = Layer.effect(
             }),
 
           commit: Effect.gen(function* () {
-            yield* cancelInflight
-            // Enter commits the LLM's version when it can arrive quickly; otherwise the instant one.
+            // Enter commits the LLM's reading: the request already in flight for this text if
+            // there is one (never restarted), else a fresh one; the instant one only on timeout.
             const typed = latest
+            const pending = typed && refining?.text === typed.text ? refining.result : null
+            if (!pending) yield* cancelInflight
             if (typed && refiner.enabled && llmResult?.text !== typed.text && !explicitCommand) {
-              const graph = yield* refine(typed.text).pipe(
+              const graph = yield* (pending ? Deferred.await(pending) : refine(typed.text)).pipe(
                 Effect.timeout(commitWait),
                 Effect.catchAll(() => Effect.succeed(null)),
               )
+              yield* cancelInflight
               if (graph) {
                 llmResult = { text: typed.text, graph }
                 yield* render(typed.text, typed.anchor)
               }
             }
+            yield* cancelInflight
             pieceMemory = new Map()
             latest = null
             llmResult = null
@@ -507,7 +529,7 @@ export const RoomsLive = Layer.effect(
                 ...n,
                 ...(p.label ? { label: p.label } : {}),
                 ...(p.type ? { type: p.type } : {}),
-                props: { ...n.props, ...(p.color ? { color: p.color } : {}) },
+                props: { ...n.props, ...(p.color ? { color: p.color } : {}), ...(p.note ? { note: p.note.slice(0, 2000) } : {}) },
                 ...(moving ? { parent: p.parent!, order: nextOrder(p.parent!) } : {}),
               }
               room.nodes.set(n.id, next)
@@ -554,6 +576,18 @@ export const RoomsLive = Layer.effect(
               if (n.handle) room.handles.delete(n.handle)
               room.handles.set(handle, id)
               const next: BoardNode = { ...n, handle }
+              room.nodes.set(id, next)
+              yield* store.upsert(roomId, [next])
+              yield* broadcast(room, new NodesUpdated({ nodes: [next] }))
+            }),
+
+          setNote: (id, note) =>
+            Effect.gen(function* () {
+              const n = room.nodes.get(id)
+              if (!n) return
+              const text = note.trim().slice(0, 2000)
+              const { note: _old, ...rest } = n.props
+              const next: BoardNode = { ...n, props: text ? { ...rest, note: text } : rest }
               room.nodes.set(id, next)
               yield* store.upsert(roomId, [next])
               yield* broadcast(room, new NodesUpdated({ nodes: [next] }))
