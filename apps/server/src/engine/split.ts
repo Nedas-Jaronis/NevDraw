@@ -121,7 +121,7 @@ const CONNECT_RECENT =
 
 /** "connect X and Y (together)" / "link X to Y" → the ordinary relation "X connects to Y". */
 const CONNECT_PAIR =
-  /^(?:connect(?:ed|s)?|link(?:ed)?|hook(?:ed)? up|wire(?:d)?(?: up)?|join(?:ed)?)\s+(.+?)\s+(?:to|and|with)\s+(.+?)(?:\s+(?:together|up))?$/i
+  /^(?:(?:re-?)?connect(?:ed|s)?|(?:re-?)?link(?:ed)?|hook(?:ed)? up|(?:re-?)?wire(?:d)?(?: up)?|(?:re-?)?join(?:ed)?)\s+(.+?)\s+(?:to|and|with)\s+(.+?)(?:\s+(?:together|up|again|back up|back))?$/i
 
 /** "X and Y (are) linked together" → "X connects to Y". */
 const PAIR_LINKED =
