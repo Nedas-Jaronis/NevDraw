@@ -26,9 +26,9 @@ import { DebugPanel } from "./DebugPanel.tsx"
 import { EdgeLayer } from "./EdgeLayer.tsx"
 import { ExportDialog } from "./ExportDialog.tsx"
 import { ProfileMenu } from "./ProfileMenu.tsx"
+import { SideMenu } from "./SideMenu.tsx"
 import { HelpButton } from "./HelpButton.tsx"
 import { buildTree } from "./tree.ts"
-import { applyTheme, followSystem, loadTheme, type ThemePref } from "../theme.ts"
 
 const DEBUG = new URLSearchParams(location.search).has("debug")
 
@@ -454,119 +454,10 @@ function RemoteCursor({ user, at }: { user: User; at: Point }) {
   )
 }
 
-const THEMES: Array<{ pref: ThemePref; label: string; icon: string }> = [
-  { pref: "system", label: "Theme: system", icon: "◐" },
-  { pref: "light", label: "Theme: light", icon: "☀" },
-  { pref: "dark", label: "Theme: dark", icon: "☾" },
-]
-
-/** Share this board: its link as a QR code for phones, plus copy. */
-function ShareButton({ onExport }: { onExport: () => void }) {
-  const [qr, setQr] = useState<string | null>(null)
-  const open = async () => {
-    const QRCode = (await import("qrcode")).default
-    setQr(await QRCode.toDataURL(location.href, { margin: 1, width: 240 }))
-  }
-  return (
-    <>
-      <button
-        type="button"
-        onClick={open}
-        className="rounded-md border border-[var(--panel-border)] px-2 py-0.5 text-xs hover:bg-black/5 dark:hover:bg-white/10"
-      >
-        Share
-      </button>
-      {qr && (
-        <div
-          data-ui
-          className="pointer-events-auto fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-          onClick={() => setQr(null)}
-        >
-          <div
-            className="flex flex-col items-center gap-3 rounded-2xl border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <span className="text-sm font-medium">Scan to join this board</span>
-            <img src={qr} alt="QR code for this board's link" className="h-60 w-60 rounded-lg bg-white p-2" />
-            <span className="max-w-60 break-all text-center text-[11px] text-[var(--muted)]">{location.href}</span>
-            <div className="my-1 h-px w-full bg-[var(--hairline)]" />
-            <button
-              type="button"
-              onClick={() => {
-                setQr(null)
-                onExport()
-              }}
-              title="⌘/Ctrl+Shift+E"
-              className="w-full rounded-lg border border-[var(--panel-border)] py-1.5 text-xs font-medium hover:bg-black/5 dark:hover:bg-white/10"
-            >
-              Export image… <span className="font-normal text-[var(--muted)]">PNG · PDF</span>
-            </button>
-            <button type="button" onClick={() => setQr(null)} className="text-xs text-[var(--muted)] hover:text-[var(--ink)]">
-              Close
-            </button>
-          </div>
-        </div>
-      )}
-    </>
-  )
-}
-
-/** System → light → dark. System (the default) follows the OS live. */
-function ThemeToggle() {
-  const [pref, setPref] = useState<ThemePref>(loadTheme)
-  useEffect(() => {
-    applyTheme(pref)
-    return followSystem(pref)
-  }, [pref])
-  const current = THEMES.find((t) => t.pref === pref)!
-  const next = THEMES[(THEMES.indexOf(current) + 1) % THEMES.length]!
-  return (
-    <button
-      type="button"
-      onClick={() => setPref(next.pref)}
-      aria-label={`${current.label}. Switch to ${next.pref}`}
-      title={current.label}
-      className="flex h-6 w-6 items-center justify-center rounded-md border border-[var(--panel-border)] text-xs text-[var(--muted)] hover:text-[var(--ink)]"
-    >
-      {current.icon}
-    </button>
-  )
-}
-
 function TopBar(props: { roomId: string; users: User[]; selfId: string | null; status: string; onExport: () => void }) {
-  const [copied, setCopied] = useState(false)
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(location.href)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1500)
-    } catch {
-      // clipboard unavailable (insecure context); the URL bar still works
-    }
-  }
   return (
     <div className="pointer-events-none absolute inset-x-0 top-0 z-40 flex items-start justify-between gap-3 p-3">
-      <div
-        data-ui
-        className="pointer-events-auto flex items-center gap-2 rounded-xl border border-[var(--panel-border)] bg-[var(--panel)] px-3 py-2 shadow-sm"
-      >
-        <span className="whitespace-nowrap font-semibold">Live Wireframes</span>
-        <span className="hidden text-sm text-[var(--muted)] sm:inline">/ {props.roomId}</span>
-        <button
-          type="button"
-          onClick={copy}
-          className="rounded-md border border-[var(--panel-border)] px-2 py-0.5 text-xs hover:bg-black/5 dark:hover:bg-white/10"
-        >
-          {copied ? "Copied" : "Copy link"}
-        </button>
-        <ShareButton onExport={props.onExport} />
-        <ThemeToggle />
-        {props.status !== "open" && (
-          <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-xs text-amber-600 dark:text-amber-400">
-            {props.status === "connecting" ? "Connecting…" : "Reconnecting…"}
-          </span>
-        )}
-      </div>
+      <SideMenu roomId={props.roomId} status={props.status} onExport={props.onExport} />
       <ProfileMenu users={props.users} selfId={props.selfId} roomId={props.roomId} />
     </div>
   )
