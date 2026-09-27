@@ -12,6 +12,7 @@ import {
   NodesRemoved,
   NodesUpdated,
   type Point,
+  itemsOf,
   REGISTRY,
   isImageSrc,
   type ServerMessage,
@@ -69,6 +70,10 @@ type Room = {
 
 
 /** "Checkout Page", "@checkout page!" → "@checkout-page"; null when nothing's left. */
+
+/** Words that ask for something to be removed; without one, removals are never applied. */
+const REMOVAL = /\b(remove|delete|drop|get rid|without|no more|lose|erase|ditch|kill|take (?:out|away))\b/i
+
 export const normalizeHandle = (raw: string): string | null => {
   const body = raw
     .trim()
@@ -204,11 +209,12 @@ export const RoomsLive = Layer.effect(
     }
 
     const handleInfo = (room: Room): HandleInfo => {
-      const info = new Map<string, { container: boolean; type: BoardNode["type"]; label: string; parent: string | null }>()
+      const info = new Map<string, { container: boolean; type: BoardNode["type"]; label: string; parent: string | null; items?: string[] }>()
       for (const [h, id] of room.handles) {
         const n = room.nodes.get(id)
         const parent = n?.parent ? (room.nodes.get(n.parent)?.handle ?? null) : null
-        if (n) info.set(h, { container: REGISTRY[n.type].container, type: n.type, label: n.label, parent })
+        const items = n ? itemsOf(n) : null
+        if (n) info.set(h, { container: REGISTRY[n.type].container, type: n.type, label: n.label, parent, ...(items ? { items } : {}) })
       }
       return info
     }
@@ -373,8 +379,9 @@ export const RoomsLive = Layer.effect(
             return graph
           })
 
-        const clearDraft = Effect.suspend(() => {
-          const stopTyping = setTyping(false)
+        /** Drop this person's draft; `typing` = they're still typing (a fragment that means nothing yet). */
+        const clearDraftWith = (typing: boolean) => Effect.suspend(() => {
+          const stopTyping = typing ? Effect.void : setTyping(false)
           versions = []
           viewing = null
           pieceMemory = new Map()
@@ -388,6 +395,7 @@ export const RoomsLive = Layer.effect(
             ? Effect.all([sendTo(room, user.id, new DraftCleared({ userId: user.id })), relayout(room), clearSuggestions, stopTyping], { discard: true })
             : Effect.all([clearSuggestions, stopTyping], { discard: true })
         })
+        const clearDraft = clearDraftWith(false)
 
         /** Build and broadcast the draft from what's known now; returns the pieces still waiting on Jev. */
         const render = (text: string, anchor: Point) =>
@@ -407,8 +415,10 @@ export const RoomsLive = Layer.effect(
             // Explicit commands on @handles (edits, wrap, include) are parsed by code and stay
             // deterministic; otherwise the LLM's reading of this exact text wins over the instant one.
             explicitCommand = r.graph.patches.length > 0
+            const fromLlm = llmResult?.text === text && !explicitCommand ? keepComputed(llmResult.graph, r.graph) : null
             const graph = referToExisting(
-              llmResult?.text === text && !explicitCommand ? keepComputed(llmResult.graph, r.graph) : r.graph,
+              // The AI never removes anything the text didn't ask to remove.
+              fromLlm && !REMOVAL.test(text) ? { ...fromLlm, patches: fromLlm.patches.filter((p) => !p.remove) } : (fromLlm ?? r.graph),
               handleInfo(room),
               text,
             )
@@ -427,7 +437,7 @@ export const RoomsLive = Layer.effect(
             }
             const viewed = viewing !== null ? versions[viewing] : undefined
             const shown = viewed?.graph ?? graph
-            if (shown.nodes.length === 0 && shown.edges.length === 0 && shown.patches.length === 0) return Effect.as(clearDraft, [])
+            if (shown.nodes.length === 0 && shown.edges.length === 0 && shown.patches.length === 0) return Effect.as(clearDraftWith(true), [])
             const prev = room.memory.get(user.id)
             const memory = placeNewRoots(
               room,
@@ -499,7 +509,9 @@ export const RoomsLive = Layer.effect(
                   ),
                 )
               }
-              if (refiner.enabled && llmResult === null && !explicitCommand) {
+              // The AI only reads text that already means something (not "c" or a half-typed @c).
+              const meaningful = !!lastGraph && lastGraph.nodes.length + lastGraph.edges.length + lastGraph.patches.length > 0
+              if (refiner.enabled && llmResult === null && !explicitCommand && meaningful) {
                 // After a longer pause, the LLM cleans up what Jev can't (pronouns, chains, phrasing).
                 llmFiber = yield* Effect.fork(
                   Effect.sleep(llmDebounce).pipe(
@@ -627,7 +639,12 @@ export const RoomsLive = Layer.effect(
                 ...n,
                 ...(p.label ? { label: p.label } : {}),
                 ...(p.type ? { type: p.type } : {}),
-                props: { ...n.props, ...(p.color ? { color: p.color } : {}), ...(p.note ? { note: p.note.slice(0, 2000) } : {}) },
+                props: {
+                  ...n.props,
+                  ...(p.color ? { color: p.color } : {}),
+                  ...(p.note ? { note: p.note.slice(0, 2000) } : {}),
+                  ...(p.items ? { items: p.items.slice(0, 12).map((x) => x.slice(0, 60)) } : {}),
+                },
                 ...(moving ? { parent: p.parent!, order: nextOrder(p.parent!) } : p.order !== undefined ? { order: p.order } : {}),
               }
               room.nodes.set(n.id, next)

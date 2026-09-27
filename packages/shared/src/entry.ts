@@ -50,6 +50,8 @@ export const EntryPatch = Schema.Struct({
   detach: Schema.optional(Schema.Boolean),
   /** "annotate @x: needs real copy": its annotation. */
   note: Schema.optional(Schema.String),
+  /** Its list, replaced (fields, links, rows): "change email to username". */
+  items: Schema.optional(Schema.Array(Schema.String)),
   /** Remove it (and everything inside it). */
   remove: Schema.optional(Schema.Boolean),
   /** Move among its siblings: right after / before this @handle, or "$top" / "$bottom" / "$prev" / "$next". */

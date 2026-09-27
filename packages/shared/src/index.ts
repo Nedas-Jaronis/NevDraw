@@ -1,5 +1,6 @@
 export * from "./board.ts"
 export * from "./color.ts"
+export * from "./defaults.ts"
 export * from "./entry.ts"
 export * from "./handles.ts"
 export * from "./oklch.ts"

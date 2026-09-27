@@ -1,4 +1,4 @@
-import { type BoardNode, type NodeType, parseColor, REGISTRY } from "@rtw/shared"
+import { type BoardNode, FOOTER_RE, formKindOf, itemsOf, type NodeType, parseColor, REGISTRY, SIDEBAR_RE } from "@rtw/shared"
 import { type CSSProperties, type ReactNode, useEffect, useRef, useState } from "react"
 import { ImageSlot } from "./images.tsx"
 import { Title } from "./NodeView.tsx"
@@ -363,7 +363,7 @@ function Sketch({ node, editable }: { node: BoardNode; editable: boolean }) {
         <div className="flex items-center gap-2">
           <div className="h-3.5 w-3.5 rounded-md bg-[var(--a)]" />
           <div className="ml-auto flex gap-2 text-[10px] text-[var(--muted)]">
-            {(items?.length ? items : ["Home", "Pricing", "About"]).slice(0, 4).map((x, i) => (
+            {(itemsOf(node) ?? []).slice(0, 4).map((x, i) => (
               <span key={`${i}-${x}`}>{x}</span>
             ))}
           </div>
@@ -699,23 +699,13 @@ function Sketch({ node, editable }: { node: BoardNode; editable: boolean }) {
   }
 }
 
-/** What a form is for, from its name: the fields, button and footer a real one would have. */
-const FORM_KINDS: Array<{ test: RegExp; title: string; sub: string; fields: string[]; submit: string; footer?: string }> = [
-  { test: /sign\s*up|register|create account|join/i, title: "Create your account", sub: "Start in less than a minute.", fields: ["Full name", "Email", "Password"], submit: "Sign up", footer: "Already have an account? Log in" },
-  { test: /log\s*in|sign\s*in|auth/i, title: "Welcome back", sub: "Log in to continue.", fields: ["Email", "Password"], submit: "Log in", footer: "Forgot password?" },
-  { test: /contact|message|support|feedback/i, title: "Get in touch", sub: "We usually reply within a day.", fields: ["Name", "Email", "Message"], submit: "Send" },
-  { test: /checkout|payment|billing|card/i, title: "Payment", sub: "All transactions are secure.", fields: ["Card number", "Expiry", "CVC"], submit: "Pay now" },
-  { test: /newsletter|subscribe|waitlist/i, title: "Stay in the loop", sub: "No spam, unsubscribe anytime.", fields: ["Email"], submit: "Subscribe" },
-  { test: /confirm|delete|remove/i, title: "Are you sure?", sub: "This can't be undone.", fields: [], submit: "Confirm" },
-]
-
 /**
  * An empty form or modal renders as a finished dialog card: heading, labelled
  * fields and a primary button. Its items (from the prompt) are the fields.
  */
 export function FormCard({ node }: { node: BoardNode }) {
-  const kind = FORM_KINDS.find((k) => k.test.test(node.label))
-  const fields = node.props.items?.length ? node.props.items : (kind?.fields ?? ["Name", "Email"])
+  const kind = formKindOf(node.label)
+  const fields = itemsOf(node) ?? []
   const title = kind?.title ?? node.label
   return (
     <div className="relative mx-auto w-full max-w-[260px] rounded-2xl border border-[var(--hairline)] bg-[var(--panel)] p-4 shadow-[0_12px_32px_-16px_rgba(0,0,0,0.35)]">
@@ -747,8 +737,8 @@ export function FormCard({ node }: { node: BoardNode }) {
 }
 
 /** "Sidebar", "side nav", "left menu": the column beside a page's content. */
-export const SIDEBAR = /\b(side\s*bar|side\s*nav|side\s*menu|nav(?:igation)?\s*(?:panel|rail|drawer)|left\s*(?:menu|nav|panel)|drawer)\b/i
-const FOOTER = /\bfooter\b/i
+export const SIDEBAR = SIDEBAR_RE
+const FOOTER = FOOTER_RE
 
 /**
  * An empty section drawn as what its name says (a sidebar's nav, a footer's
@@ -761,7 +751,7 @@ export function EmptySection({ node }: { node: BoardNode }) {
   if (SIDEBAR.test(label))
     return (
       <div className="flex flex-col gap-0.5">
-        {(items?.length ? items : ["Overview", "Getting started", "Guides", "API reference", "Settings"]).slice(0, 8).map((x, i) => (
+        {(itemsOf(node) ?? []).slice(0, 8).map((x, i) => (
           <div
             key={`${i}-${x}`}
             className={`truncate rounded-md px-2 py-1 text-[11px] ${i === 0 ? "bg-[var(--a)]/15 font-medium text-[var(--ink)]" : "text-[var(--muted)]"}`}
@@ -774,7 +764,7 @@ export function EmptySection({ node }: { node: BoardNode }) {
   if (FOOTER.test(label))
     return (
       <div className="flex items-center gap-3 text-[10px] text-[var(--muted)]">
-        {(items?.length ? items : ["About", "Blog", "Privacy", "Terms"]).slice(0, 6).map((x, i) => (
+        {(itemsOf(node) ?? []).slice(0, 6).map((x, i) => (
           <span key={`${i}-${x}`}>{x}</span>
         ))}
         <span className="ml-auto">© 2026</span>

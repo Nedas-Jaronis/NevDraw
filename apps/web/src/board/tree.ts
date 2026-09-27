@@ -62,7 +62,7 @@ export function buildTree(state: RoomState): Tree {
         ...base,
         ...(p.label ? { label: p.label } : {}),
         ...(p.type ? { type: p.type } : {}),
-        props: { ...base.props, ...(p.color ? { color: p.color } : {}) },
+        props: { ...base.props, ...(p.color ? { color: p.color } : {}), ...(p.items ? { items: p.items } : {}) },
         ...(p.parent ? { parent: p.parent, order: 1000 + base.order } : p.order !== undefined ? { order: p.order } : {}),
         authorColor: change.color,
       },

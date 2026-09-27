@@ -45,10 +45,10 @@ test("a draft is private: only the typist sees it, including the raw text", asyn
 test("a draft keeps its node id and position while typing continues", async () => {
   const s = await boot()
   const a = await join(s.url, "r", "Ada")
-  a.c.send(new SetInput({ text: "post", anchor }))
-  a.c.send(new SetInput({ text: "postgres", anchor: { x: 9999, y: 9999 } }))
-  const last = await a.c.waitFor(is("DraftUpdated", (m) => m.draft.text === "postgres"))
-  const first = a.c.received.find(is("DraftUpdated", (m) => m.draft.text === "post"))!
+  a.c.send(new SetInput({ text: "data store", anchor }))
+  a.c.send(new SetInput({ text: "data store postgres", anchor: { x: 9999, y: 9999 } }))
+  const last = await a.c.waitFor(is("DraftUpdated", (m) => m.draft.text === "data store postgres"))
+  const first = a.c.received.find(is("DraftUpdated", (m) => m.draft.text === "data store"))!
   expect(last.draft.nodes[0]!.id).toBe(first.draft.nodes[0]!.id)
   expect(last.draft.nodes[0]!.x).toBe(first.draft.nodes[0]!.x)
   expect(last.draft.nodes[0]!.type).toBe("database")
