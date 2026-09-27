@@ -61,7 +61,7 @@ const stop = () => {
 process.on("SIGINT", stop)
 process.on("SIGTERM", stop)
 
-console.log(`\n  Live Wireframes is public at:\n\n    ${url}\n`)
+console.log(`\n  NevDraw is public at:\n\n    ${url}\n`)
 console.log(await QRCode.toString(url, { type: "terminal", small: true }))
 console.log("  Share that link (or the QR). Each board's own link also has a QR under Share.")
 console.log("  Leave this running; Ctrl+C stops the server and the tunnel.")
