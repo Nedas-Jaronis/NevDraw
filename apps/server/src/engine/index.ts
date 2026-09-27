@@ -3,6 +3,7 @@ import type { EntryGraph } from "@rtw/shared"
 import type { PieceState } from "../classify/Jev.ts"
 import { keywordAnswers, type PieceAnswers } from "./answers.ts"
 import { detachOf, noteOf } from "./edits.ts"
+import { itemEditOf } from "./items.ts"
 import { placeInTarget, readTargeted } from "./target.ts"
 import { assemble, classificationText, type HandleInfo } from "./assemble.ts"
 import { type Piece, split } from "./split.ts"
@@ -13,7 +14,9 @@ export { type BoardView, type DraftMemory, materialize, validateHandles } from "
 export type { PieceMemory } from "./stabilize.ts"
 
 /** Offline interpretation of an entry: split → keyword answers per piece → graph. */
-export function interpretOffline(text: string, handles: HandleInfo = new Map()): EntryGraph {
+export function interpretOffline(raw: string, handles: HandleInfo = new Map()): EntryGraph {
+  const text = withoutPartialMentions(raw, handles)
+  if (!meaningful(text)) return { nodes: [], edges: [], suggestions: [], patches: [] }
   const pieces = split(text)
   return assemble(pieces, pieces.map(keywordAnswers), handles)
 }
@@ -150,6 +153,55 @@ export function referToExisting(graph: EntryGraph, handles: HandleInfo, text: st
   }
 }
 
+/**
+ * A reference still being typed ("… to @co") is not a word yet: drop it. An
+ * unknown @word elsewhere is read as the plain word.
+ */
+export function withoutPartialMentions(text: string, handles: HandleInfo): string {
+  return text
+    // Still typing it: too short to mean anything, or the start of an existing tag ("@c" → @contact-form).
+    .replace(/@[a-z0-9-]*$/i, (m) => {
+      const t = m.toLowerCase()
+      if (handles.has(t)) return m
+      return t.length < 4 || [...handles.keys()].some((h) => h.startsWith(t)) ? "" : m
+    })
+    .replace(/@([a-z0-9][a-z0-9-]*)/gi, (m, w: string) => (handles.has(m.toLowerCase()) ? m : w.replace(/-/g, " ")))
+    .trim()
+}
+
+/** Is there anything to read beyond references: at least one real word (3+ letters)? */
+export const meaningful = (text: string) => /[a-z]{3,}/i.test(text.replace(/@[a-z0-9][a-z0-9-]*/gi, " "))
+
+/**
+ * Only draft what's understood: a piece the keyword pass can't place (a lone
+ * unknown word, a fragment) stays invisible until Jev answers with confidence,
+ * unless it's connected to something. Descriptive phrases ("big brand
+ * moment") still show as a box right away.
+ */
+export function withoutGuesses(graph: EntryGraph, pieces: readonly Piece[], answers: readonly PieceAnswers[]): EntryGraph {
+  const weak = new Set<string>()
+  pieces.forEach((p, i) => {
+    const a = answers[i]
+    const words = (p.text.match(/[a-z]{3,}/gi) ?? []).length
+    if (a && a.nodeType.confidence < 0.5 && words < 2) weak.add(`p${p.index}`)
+  })
+  if (weak.size === 0) return graph
+  // Something with an arrow to or from it is clearly an element ("checkout calls stripe").
+  const linked = new Set(graph.edges.flatMap((e) => [e.from, e.to]))
+  const dropped = new Set(graph.nodes.filter((n) => weak.has(n.key.split(".")[0]!) && !linked.has(n.key)).map((n) => n.key))
+  // Children of a dropped element go with it.
+  for (let changed = true; changed; ) {
+    changed = false
+    for (const n of graph.nodes) if (n.parent && dropped.has(n.parent) && !dropped.has(n.key)) (dropped.add(n.key), (changed = true))
+  }
+  if (dropped.size === 0) return graph
+  return {
+    ...graph,
+    nodes: graph.nodes.filter((n) => !dropped.has(n.key)),
+    edges: graph.edges.filter((e) => !dropped.has(e.from) && !dropped.has(e.to)),
+  }
+}
+
 export type PieceDebug = { text: string; type: string; confidence: number; source: "keyword" | "jev" }
 
 /**
@@ -175,14 +227,20 @@ export function interpret(input: {
     debug: [] as PieceDebug[],
     pieces: [] as Piece[],
   })
-  // "detach @a from @b", "disconnect @a and @b": one command, not a sentence to split.
-  const detach = noteOf(input.text, input.handles) ?? detachOf(input.text, input.handles)
-  if (detach) return only(detach)
-  // A clicked target: remove / move / change its parts; anything else is new parts inside it.
+  const said = withoutPartialMentions(input.text.replace(/`/g, ""), input.handles)
   const target = input.target && input.handles.has(input.target) ? input.target : null
-  const aimed = target ? readTargeted(input.text, target, input.handles) : null
+  // Nothing to read yet: "c", "@c" (a reference being typed), or only references.
+  if (!meaningful(said)) return only([])
+  // "detach @a from @b", "disconnect @a and @b": one command, not a sentence to split.
+  const detach = noteOf(said, input.handles) ?? detachOf(said, input.handles)
+  if (detach) return only(detach)
+  // "change email to username": one entry of an element's list, everything else untouched.
+  const listEdit = itemEditOf(said, input.handles, target)
+  if (listEdit) return only([listEdit])
+  // A clicked target: remove / move / change its parts; anything else is new parts inside it.
+  const aimed = target ? readTargeted(said, target, input.handles) : null
   if (aimed && !aimed.rest.trim()) return only(aimed.patches)
-  const text = aimed ? aimed.rest : input.text
+  const text = aimed ? aimed.rest : said
   const pieces = split(text)
   const states = pieceStates(pieces, [...input.handles.keys()], input.handles)
   const memory = new Map<number, PieceMemory>()
@@ -200,7 +258,7 @@ export function interpret(input: {
     confidence: Math.round(answers[i]!.nodeType.confidence * 100) / 100,
     source: answers[i]!.source,
   }))
-  let graph = assemble(pieces, answers, input.handles, input.recent ?? [])
+  let graph = withoutGuesses(assemble(pieces, answers, input.handles, input.recent ?? []), pieces, answers)
   if (target && aimed) {
     graph = placeInTarget(graph, target, input.handles)
     const patches = new Map(graph.patches.map((p) => [p.target, p]))

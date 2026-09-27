@@ -100,7 +100,10 @@ function cleanLabel(text: string, repeated: boolean): string {
  * name used twice in one entry is the same element.
  */
 /** What the assembler may know about committed @handles. */
-export type HandleInfo = ReadonlyMap<string, { container: boolean; type?: NodeType; label?: string; /** The container's @handle. */ parent?: string | null }>
+export type HandleInfo = ReadonlyMap<
+  string,
+  { container: boolean; type?: NodeType; label?: string; /** The container's @handle. */ parent?: string | null; /** Its list (fields, links, rows): own items or the defaults it shows. */ items?: readonly string[] }
+>
 
 /** Media that can sit inside any element ("embed an image in the hero"). */
 const EMBEDDABLE = new Set<NodeType>(["image", "video", "chart", "map", "avatar"])

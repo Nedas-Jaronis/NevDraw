@@ -73,6 +73,8 @@ export const NodePatch = Schema.Struct({
   note: Schema.optional(Schema.String),
   /** Remove it and everything inside it. */
   remove: Schema.optional(Schema.Boolean),
+  /** Its new list (fields, links, rows). */
+  items: Schema.optional(Schema.Array(Schema.String.pipe(Schema.maxLength(60))).pipe(Schema.maxItems(12))),
   /** Its new position among its siblings. */
   order: Schema.optional(Schema.Number),
   /** Remove the arrows between it and this node id ("*": all its arrows). */
