@@ -187,3 +187,21 @@ test("a count survives what the text says about the copies ('4 independent serve
     expect(new Set(g.nodes.map((n) => n.props.color))).toEqual(new Set(["#ff7a1a"]))
   }
 })
+
+test("pointer words and 'the …' refer back instead of making elements ('in which they', typos too)", async () => {
+  const { interpret } = await import("../src/engine/index.ts")
+  const { keywordAnswers } = await import("../src/engine/answers.ts")
+  const peek = (st: { piece: string }) => ({
+    ...keywordAnswers({ index: 0, text: st.piece, connector: "start" }),
+    isGroup: /\d|two/.test(st.piece) ? 0.95 : 0.05,
+    source: "jev" as const,
+  })
+  const text = "create me a server stack of 5 servers, in which they connect to two load balancers. and then the load balacners connect to 3 independent databases."
+  const g = interpret({ text, handles: new Map(), peek: peek as never, memory: new Map() }).graph
+  expect(g.nodes.map((n) => n.label)).toEqual([
+    "Server 1", "Server 2", "Server 3", "Server 4", "Server 5",
+    "Load balancer 1", "Load balancer 2",
+    "Independent database 1", "Independent database 2", "Independent database 3",
+  ])
+  expect(g.edges.length).toBe(5 * 2 + 2 * 3)
+})

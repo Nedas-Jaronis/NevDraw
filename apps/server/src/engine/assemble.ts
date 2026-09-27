@@ -74,6 +74,22 @@ const withoutDescription = (text: string) =>
     .replace(/,?\s+(?:all|each|both)\s+(?:in\s+|colou?red\s+)?[a-z]+$/i, "")
     .trim() || text
 
+/** A piece of only pointer words ("in which they", "them", "each of those") names nothing new. */
+const POINTER = /^(?:(?:in|of|to|with|for|on|at|from|where|which|that|who|whom|whose|they|them|it|its|those|these|this|each|all|both|then|so|and|every|one)\b[\s,]*)+$/i
+/** "the …", "those …", "these …", "both …": something already mentioned. */
+const DEFINITE = /^(?:the|those|these|both|all(?:\s+the)?|each\s+of\s+the)\s+/i
+
+function editDistance(a: string, b: string): number {
+  const d = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array<number>(b.length).fill(0)])
+  for (let j = 1; j <= b.length; j++) d[0]![j] = j
+  for (let i = 1; i <= a.length; i++)
+    for (let j = 1; j <= b.length; j++) {
+      d[i]![j] = Math.min(d[i - 1]![j]! + 1, d[i]![j - 1]! + 1, d[i - 1]![j - 1]! + (a[i - 1] === b[j - 1] ? 0 : 1))
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) d[i]![j] = Math.min(d[i]![j]!, d[i - 2]![j - 2]! + 1)
+    }
+  return d[a.length]![b.length]!
+}
+
 function pluralLabel(label: string) {
   return /s$/i.test(label) ? label : `${label}s`
 }
@@ -227,6 +243,16 @@ export function assemble(
   /** Top-level/edge nodes by label, so "api … api" is one element. */
   const byLabel = new Map<string, string>()
   let prev: { key: string; parent: string | null; container: boolean } | null = null
+  /** Groups this entry made, by their members' name ("load balancer"). */
+  const groupNames = new Map<string, string>()
+  /** "the load balancers" / "those servers" (typos too): a group or element this entry already made. */
+  const sameEntry = (text: string): string | null => {
+    if (!DEFINITE.test(text.trim())) return null
+    const name = cleanLabel(text.trim().replace(DEFINITE, ""), true).toLowerCase()
+    const known: [string, string][] = [...groupNames, ...byLabel]
+    const close = (a: string, b: string) => a === b || (Math.min(a.length, b.length) >= 6 && editDistance(a, b) <= 2)
+    return known.find(([l]) => close(l, name) || close(l, name.replace(/s$/, "")))?.[1] ?? null
+  }
 
   /** "5 servers" on a system diagram: the group's key stands for each member. */
   const groups = new Map<string, string[]>()
@@ -317,6 +343,16 @@ export function assemble(
     const edge = piece.connector === "edge" ? piece.edge : undefined
 
     // "@postgres", "the @postgres": a reference to a committed element, not a new one.
+    // "in which they", "them", "each of those": no thing named, only a pointer back to the one before.
+    const back = POINTER.test(piece.text) && prev ? prev.key : sameEntry(piece.text)
+    if (back) {
+      keyOfPiece.set(piece.index, back)
+      if (edge) addEdge(keyOfPiece.get(edge.from), back, edge.kind, edge.label)
+      const n = byKey.get(back)
+      prev = { key: back, parent: n?.parent ?? null, container: n ? REGISTRY[n.type].container : false }
+      return
+    }
+
     const ref = referenceOf(piece.text, handles)
     if (ref) {
       keyOfPiece.set(piece.index, ref)
@@ -385,6 +421,7 @@ export function assemble(
         members.push(m.key)
       }
       groups.set(key, members)
+      groupNames.set(label.toLowerCase(), key)
       keyOfPiece.set(piece.index, key)
       if (edge) addEdge(keyOfPiece.get(edge.from), key, edge.kind, edge.label)
       prev = { key, parent: null, container: false }

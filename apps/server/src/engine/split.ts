@@ -94,7 +94,7 @@ const CHILD_JOINER = /^\s*(with|including|containing|featuring|that has|which ha
  */
 const CONVERSATION =
   /^\s*(?:(?:hey|ok|okay|so|now|then|also|and)[,\s]+)*(?:(?:can|could|would|will) you\s+(?:please\s+)?|please\s+|(?:let'?s|lets)\s+|i(?:'d| would)? (?:want|need|like)(?: you)?(?: to)?\s+|we (?:want|need|should)(?: to)?\s+)?(?:go ahead and\s+)?/i
-const CREATE_VERB = /^(?:(?:create|make|add|draw|build|design|sketch|show|put|give me|generate|include|set up|embed|insert|attach|upload|place|drop)\s+)/i
+const CREATE_VERB = /^(?:(?:create|make|add|draw|build|design|sketch|show|put|give me|generate|include|set up|embed|insert|attach|upload|place|drop)\s+(?:(?:me|us)\s+)?)/i
 
 /** "make @x red", "set @x to blue": the verb is part of an edit, so it stays. */
 const EDIT_START = /^(?:make|turn|change|set|colou?r|paint|recolou?r|rename|call|label|title|update|switch|convert)\b.*@[a-z0-9]/i
