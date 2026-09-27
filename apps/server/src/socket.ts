@@ -41,7 +41,7 @@ export const roomSocket = Effect.gen(function* () {
       case "MoveCursor":
         return session.moveCursor(msg.cursor)
       case "SetInput":
-        return session.setInput(msg.text, msg.anchor)
+        return session.setInput(msg.text, msg.anchor, msg.target)
       case "Commit":
         return session.commit
       case "Discard":

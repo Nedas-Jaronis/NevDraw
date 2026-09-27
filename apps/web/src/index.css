@@ -128,3 +128,17 @@ body {
 .typing-dot {
   animation: typing-dot 1.1s ease-in-out infinite;
 }
+
+/* A part someone is about to remove: struck through until they press Enter. */
+.frame.is-removing > * > .frame-title > span:first-child {
+  text-decoration: line-through;
+  text-decoration-color: #e03131;
+}
+
+/* Click an element to see all of it: text that was cut off with "…" wraps in full. */
+.frame.is-targeted .truncate {
+  overflow: visible;
+  white-space: normal;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
+}

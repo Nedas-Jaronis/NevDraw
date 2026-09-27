@@ -3,6 +3,7 @@ import type { EntryGraph } from "@rtw/shared"
 import type { PieceState } from "../classify/Jev.ts"
 import { keywordAnswers, type PieceAnswers } from "./answers.ts"
 import { detachOf, noteOf } from "./edits.ts"
+import { placeInTarget, readTargeted } from "./target.ts"
 import { assemble, classificationText, type HandleInfo } from "./assemble.ts"
 import { type Piece, split } from "./split.ts"
 import { type PieceMemory, stabilize } from "./stabilize.ts"
@@ -164,11 +165,25 @@ export function interpret(input: {
   recent?: readonly string[]
   peek: (s: PieceState) => PieceAnswers | undefined
   memory: ReadonlyMap<number, PieceMemory>
+  /** The @handle of the element this person clicked: the text edits it. */
+  target?: string | null
 }) {
+  const only = (patches: EntryGraph["patches"]) => ({
+    graph: { nodes: [], edges: [], suggestions: [], patches } as EntryGraph,
+    memory: new Map<number, PieceMemory>(),
+    missing: [] as PieceState[],
+    debug: [] as PieceDebug[],
+    pieces: [] as Piece[],
+  })
   // "detach @a from @b", "disconnect @a and @b": one command, not a sentence to split.
   const detach = noteOf(input.text, input.handles) ?? detachOf(input.text, input.handles)
-  if (detach) return { graph: { nodes: [], edges: [], suggestions: [], patches: detach }, memory: new Map<number, PieceMemory>(), missing: [], debug: [], pieces: [] }
-  const pieces = split(input.text)
+  if (detach) return only(detach)
+  // A clicked target: remove / move / change its parts; anything else is new parts inside it.
+  const target = input.target && input.handles.has(input.target) ? input.target : null
+  const aimed = target ? readTargeted(input.text, target, input.handles) : null
+  if (aimed && !aimed.rest.trim()) return only(aimed.patches)
+  const text = aimed ? aimed.rest : input.text
+  const pieces = split(text)
   const states = pieceStates(pieces, [...input.handles.keys()], input.handles)
   const memory = new Map<number, PieceMemory>()
   const missing: PieceState[] = []
@@ -185,5 +200,12 @@ export function interpret(input: {
     confidence: Math.round(answers[i]!.nodeType.confidence * 100) / 100,
     source: answers[i]!.source,
   }))
-  return { graph: assemble(pieces, answers, input.handles, input.recent ?? []), memory, missing, debug, pieces }
+  let graph = assemble(pieces, answers, input.handles, input.recent ?? [])
+  if (target && aimed) {
+    graph = placeInTarget(graph, target, input.handles)
+    const patches = new Map(graph.patches.map((p) => [p.target, p]))
+    for (const p of aimed.patches) patches.set(p.target, { ...patches.get(p.target), ...p })
+    graph = { ...graph, patches: [...patches.values()] }
+  }
+  return { graph, memory, missing, debug, pieces }
 }

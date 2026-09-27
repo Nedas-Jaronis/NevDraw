@@ -50,6 +50,11 @@ export const EntryPatch = Schema.Struct({
   detach: Schema.optional(Schema.Boolean),
   /** "annotate @x: needs real copy": its annotation. */
   note: Schema.optional(Schema.String),
+  /** Remove it (and everything inside it). */
+  remove: Schema.optional(Schema.Boolean),
+  /** Move among its siblings: right after / before this @handle, or "$top" / "$bottom" / "$prev" / "$next". */
+  after: Schema.optional(Schema.String),
+  before: Schema.optional(Schema.String),
   /** "disconnect @a from @b": remove the arrows between it and this @handle ("*": all its arrows). */
   unlink: Schema.optional(Schema.String),
 })

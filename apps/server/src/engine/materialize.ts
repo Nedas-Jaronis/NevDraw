@@ -55,6 +55,11 @@ export function validateHandles(graph: EntryGraph, known: ReadonlySet<string>): 
     patches: graph.patches
       .filter((p) => known.has(p.target))
       .map((p) => (p.unlink === undefined || p.unlink === "*" || known.has(p.unlink) ? p : { ...p, unlink: undefined }))
+      .map((p) => ({
+        ...p,
+        after: p.after === undefined || p.after.startsWith("$") || known.has(p.after) ? p.after : undefined,
+        before: p.before === undefined || p.before.startsWith("$") || known.has(p.before) ? p.before : undefined,
+      }))
       .map((p) => (p.parent === undefined || ok(p.parent) ? p : { ...p, parent: undefined })),
   }
 }
@@ -238,10 +243,37 @@ export function materialize(input: {
     for (let cur: string | null = id, hops = 0; cur && hops < 64; cur = parentOf(cur), hops++) if (cur === ancestor) return true
     return false
   }
+  /** "move X above Y", "to the top": X's new order among its (committed) siblings. */
+  const orderFor = (node: BoardNode, after?: string, before?: string): number | undefined => {
+    if (!after && !before) return undefined
+    const sibs = [...board.byId.values()].filter((n) => n.parent === node.parent && n.id !== node.id).sort((a, b) => a.order - b.order)
+    if (!sibs.length) return undefined
+    const all = [...board.byId.values()].filter((n) => n.parent === node.parent).sort((a, b) => a.order - b.order)
+    const at = all.findIndex((n) => n.id === node.id)
+    const between = (i: number) => {
+      // Slot i among the siblings (0 = before the first).
+      const lo = sibs[i - 1]?.order
+      const hi = sibs[i]?.order
+      return lo === undefined ? hi! - 1 : hi === undefined ? lo + 1 : (lo + hi) / 2
+    }
+    if (before === "$top") return between(0)
+    if (after === "$bottom") return between(sibs.length)
+    if (before === "$prev") return at > 0 ? between(Math.max(0, sibs.findIndex((n) => n.id === all[at - 1]!.id))) : undefined
+    if (after === "$next") return at < all.length - 1 ? between(sibs.findIndex((n) => n.id === all[at + 1]!.id) + 1) : undefined
+    const other = board.byHandle.get((after ?? before)!)
+    const i = other ? sibs.findIndex((n) => n.id === other.id) : -1
+    if (i < 0) return undefined
+    return after ? between(i + 1) : between(i)
+  }
   const patches: NodePatch[] = []
   for (const p of graph.patches) {
     const target = board.byHandle.get(p.target)
     if (!target) continue
+    if (p.remove) {
+      patches.push({ id: target.id, remove: true })
+      continue
+    }
+    const order = orderFor(target, p.after, p.before)
     const parent = p.parent !== undefined ? keyToId.get(p.parent) : undefined
     const validParent = parent !== undefined && parent !== target.id && !isInside(parent, target.id) ? parent : undefined
     const patch: NodePatch = {
@@ -252,6 +284,7 @@ export function materialize(input: {
       ...(validParent ? { parent: validParent } : {}),
       ...(p.detach && target.parent !== null ? { detach: true } : {}),
       ...(p.note?.trim() ? { note: p.note.trim() } : {}),
+      ...(order !== undefined ? { order } : {}),
       ...(p.unlink === "*" ? { unlink: "*" } : p.unlink && board.byHandle.get(p.unlink) ? { unlink: board.byHandle.get(p.unlink)!.id } : {}),
     }
     if (Object.keys(patch).length > 1) patches.push(patch)

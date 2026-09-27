@@ -42,6 +42,11 @@ export const LlmGraph = Schema.Struct({
       unlink: Schema.String,
       /** Its annotation ("annotate @x: …"), else "". */
       note: Schema.String,
+      /** true: delete it (and everything inside it). */
+      remove: Schema.Boolean,
+      /** Move among its siblings: after / before this @handle (or "$top" / "$bottom"), else "". */
+      after: Schema.String,
+      before: Schema.String,
     }),
   ),
 })
@@ -78,12 +83,15 @@ export function fromLlm(g: LlmGraph): EntryGraph {
         ...(p.parent.trim() ? { parent: p.parent.trim() } : {}),
         ...(p.detach ? { detach: true } : {}),
         ...(p.note.trim() ? { note: p.note.trim().slice(0, 2000) } : {}),
+        ...(p.remove ? { remove: true } : {}),
+        ...(/^(@[a-z0-9-]+|\$top|\$bottom)$/i.test(p.after.trim()) ? { after: p.after.trim().toLowerCase() } : {}),
+        ...(/^(@[a-z0-9-]+|\$top|\$bottom)$/i.test(p.before.trim()) ? { before: p.before.trim().toLowerCase() } : {}),
         ...(p.unlink.trim() === "*" || p.unlink.trim().startsWith("@") ? { unlink: p.unlink.trim().toLowerCase() } : {}),
       })),
   }
 }
 
-const FIELDS = ["nodes", "edges", "suggestions", "patches", "element", "after", "before", "key", "type", "label", "parent", "layout", "items", "of", "color", "from", "to", "kind", "text", "handle", "source", "target", "detach", "unlink", "note"]
+const FIELDS = ["nodes", "edges", "suggestions", "patches", "element", "after", "before", "key", "type", "label", "parent", "layout", "items", "of", "color", "from", "to", "kind", "text", "handle", "source", "target", "detach", "unlink", "note", "remove"]
 
 /**
  * Safety net for models that bend the shape in plain JSON mode: garbled
@@ -131,6 +139,9 @@ export function normalizeLlmJson(raw: unknown): unknown {
       detach: p?.detach === true || p?.detach === "true",
       unlink: String(p?.unlink ?? ""),
       note: String(p?.note ?? ""),
+      remove: p?.remove === true || p?.remove === "true",
+      after: String(p?.after ?? ""),
+      before: String(p?.before ?? ""),
     })),
   }
 }
@@ -145,6 +156,8 @@ export type RefineInput = {
   recent?: readonly string[]
   /** The instant draft's nodes, so the model can keep their keys (smooth morphing). */
   draft: readonly { key: string; type: string; label: string; parent: string | null }[]
+  /** The element this person clicked: the text edits it. */
+  target?: string | null
 }
 
 export const SYSTEM = `You turn a teammate's short description into a graph for a shared wireframe and system-architecture whiteboard. Reply with JSON only, matching the schema.
@@ -175,7 +188,8 @@ edges: relationships between elements, as keys or @handles, with kind one of: ${
 
 Pronouns: "them", "these", "both", "it" refer to the @handles under "recent" (what this person added last). "Connect them" means edges between those elements, in a sensible flow direction, and no new nodes.
 
-Changes to existing elements go in "patches", never as new nodes: "make @x red" → {element "@x", color red}; "rename @x to Checkout" → label; "turn @x into a stopwatch" → type (only change type when the text explicitly says turn into / convert to / change it to a; "make @x a red clock" is just a color); "wrap/group @a and @b into one box" or "…it should include @a @b" → a new container node plus a patch per element with parent = that container's key. "…inside @x" narrows "all / every" to the elements inside @x ("turn all servers inside @stack blue" → the servers inside @stack, never @stack itself). Taking things apart: "detach / unattach / take @a out of @b" when @a sits inside @b → {element "@a", detach true}; "disconnect / unlink @a from @b" or "remove the arrow between @a and @b" → {element "@a", unlink "@b"}; "disconnect @a" from everything → unlink "*". Notes: "annotate @x: …" / "add a note to @x saying …" → {element "@x", note "…"}. Unused patch fields are "" (type "none", detach false).
+Changes to existing elements go in "patches", never as new nodes: "make @x red" → {element "@x", color red}; "rename @x to Checkout" → label; "turn @x into a stopwatch" → type (only change type when the text explicitly says turn into / convert to / change it to a; "make @x a red clock" is just a color); "wrap/group @a and @b into one box" or "…it should include @a @b" → a new container node plus a patch per element with parent = that container's key. "…inside @x" narrows "all / every" to the elements inside @x ("turn all servers inside @stack blue" → the servers inside @stack, never @stack itself). Taking things apart: "detach / unattach / take @a out of @b" when @a sits inside @b → {element "@a", detach true}; "disconnect / unlink @a from @b" or "remove the arrow between @a and @b" → {element "@a", unlink "@b"}; "disconnect @a" from everything → unlink "*". Targeted editing: when "target" is an @handle, the person clicked that element and the text edits it. "it", "this" and unnamed changes mean the target; parts they name ("the button", "the subtitle") are elements inside it on the board. New elements go inside the target (parent = its handle; if it can't hold children, next to it: parent = its parent, after = its handle). "remove/delete X" → {element X, remove true}. "move X above/below Y" or "to the top/bottom" → {element X, before/after Y or "$top"/"$bottom"}. Keep everything the text doesn't mention exactly as it is: never re-create, rename or remove parts that weren't asked about.
+Notes: "annotate @x: …" / "add a note to @x saying …" → {element "@x", note "…"}. Unused patch fields are "" (type "none", detach false, remove false).
 
 References: the board already has the elements listed under "board". Refer to them only by their exact @handle, never invent handles, and never re-create an element that the text refers to by @handle.
 When plain text clearly names an existing board element by its label (e.g. "the servers stack" while @servers-stack exists, "postgres" while @postgres exists) in a relationship, use that @handle as the edge end instead of creating a duplicate, and add a suggestion {"text": the words used, "handle": the @handle}. Only create a new node for it when the text asks for a new one ("add another postgres").
@@ -183,5 +197,5 @@ When plain text clearly names an existing board element by its label (e.g. "the 
 Keys: "draft" is only a fast, rough guess at THIS text by simple rules; nothing in it is on the board yet, and its labels, types and nesting are often wrong (a whole clause as a label like "Upload service stores files in an s3 bucket", a missing element, a heading as a box). Don't copy it: read the text yourself and fix every label to the short name of the thing ("Upload service", "S3 bucket"). Always return the complete graph: every element the text describes goes in "nodes", including ones the draft already shows. Reuse the draft's key when your node is the same element (same thing, even if you improve its type or label). New elements get new keys like "n1", "n2". Patches are only for @handles on the board.`
 
 export function userPrompt(input: RefineInput): string {
-  return JSON.stringify({ text: input.text, board: input.board, recent: input.recent ?? [], draft: input.draft })
+  return JSON.stringify({ text: input.text, target: input.target ?? null, board: input.board, recent: input.recent ?? [], draft: input.draft })
 }

@@ -71,6 +71,10 @@ export const NodePatch = Schema.Struct({
   detach: Schema.optional(Schema.Boolean),
   /** Set its annotation. */
   note: Schema.optional(Schema.String),
+  /** Remove it and everything inside it. */
+  remove: Schema.optional(Schema.Boolean),
+  /** Its new position among its siblings. */
+  order: Schema.optional(Schema.Number),
   /** Remove the arrows between it and this node id ("*": all its arrows). */
   unlink: Schema.optional(Schema.String),
 })
