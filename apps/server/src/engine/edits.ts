@@ -2,6 +2,7 @@ import type { EntryPatch, NodeType } from "@rtw/shared"
 import type { HandleInfo } from "./assemble.ts"
 import { classifyKeywords } from "../classify/keywords.ts"
 import { collectionOf, explicitColor } from "./modifiers.ts"
+import { resolveOnBoard } from "./target.ts"
 
 const NUMBER_WORDS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, twelve: 12 }
 /** "4 of them", "four contacts", "with 3 rows": how many, or 0. */
@@ -121,9 +122,22 @@ export function detachOf(text: string, handles: HandleInfo): EntryPatch[] | null
     if (parentOf(b) === a) return [{ target: b, detach: true }]
     return outOf ? null : [{ target: a, unlink: b }]
   }
-  if (parentOf(a)) return [{ target: a, detach: true }]
+  // One @tag and a plain name: "disconnect @modal from server 2" cuts only that arrow.
+  const object = /\b(?:from|and|with|to|of)\s+(?:the\s+)?(.+?)\s*$/i.exec(text.replace(HANDLE, " ").replace(/\s+/g, " "))?.[1]
+  if (object && !EVERYTHING.test(object)) {
+    const other = resolveOnBoard(object, handles, a)
+    // Named something that isn't there: cut nothing rather than everything.
+    if (!other) return null
+    if (parentOf(a) === other) return [{ target: a, detach: true }]
+    if (parentOf(other) === a) return [{ target: other, detach: true }]
+    return outOf ? null : [{ target: a, unlink: other }]
+  }
+  if (parentOf(a) && !object) return [{ target: a, detach: true }]
   return outOf ? null : [{ target: a, unlink: "*" }]
 }
+
+/** "from everything", "from all of them": every arrow, on purpose. */
+const EVERYTHING = /^(?:everything|anything|all|all of (?:them|it|its \w+)|every(?:one|thing)|all (?:the )?\w+)$/i
 
 /** Words that mean "every element" rather than a type. */
 const GENERIC = /^(instances?|elements?|components?|boxes?|nodes?|things?|items?|modals?|blocks?|parts?|pieces?|of|the|them|it|on|in|board|canvas|this|here|to|be|into|colou?r)$/i

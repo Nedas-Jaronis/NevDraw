@@ -195,3 +195,31 @@ test("'change to a clock' / 'make it a clock' with a target changes the element 
     expect(g.patches).toEqual([{ target: "@contact-form", type: "clock" }])
   }
 })
+
+describe("disconnect cuts only the arrow to what you name", () => {
+  const S = new Map<string, Info>([
+    ["@in-touch-modal", { container: true, type: "modal" as never, label: "In touch modal", parent: null }],
+    ["@just-email", { container: true, type: "modal" as never, label: "Just email", parent: "@in-touch-modal" }],
+    ["@server1", { container: false, type: "service" as never, label: "Server1", parent: null }],
+    ["@server-2", { container: false, type: "service" as never, label: "Server 2", parent: null }],
+    ["@server-3", { container: false, type: "service" as never, label: "Server 3", parent: null }],
+  ])
+  test.each([
+    ["disconnect @in-touch-modal from server 2", null, [{ target: "@in-touch-modal", unlink: "@server-2" }]],
+    ["disconnect @in-touch-modal from server 1", null, [{ target: "@in-touch-modal", unlink: "@server1" }]],
+    ["unlink @just-email from the server 3", null, [{ target: "@just-email", unlink: "@server-3" }]],
+    ["disconnect from server 2", "@in-touch-modal", [{ target: "@in-touch-modal", unlink: "@server-2" }]],
+    ["disconnect it from server 3", "@in-touch-modal", [{ target: "@in-touch-modal", unlink: "@server-3" }]],
+    ["disconnect @in-touch-modal from everything", null, [{ target: "@in-touch-modal", unlink: "*" }]],
+    ["disconnect from everything", "@in-touch-modal", [{ target: "@in-touch-modal", unlink: "*" }]],
+  ] as const)("%p", async (text, target, patches) => {
+    const { interpret } = await import("../src/engine/index.ts")
+    const g = interpret({ text, handles: S, peek: () => undefined, memory: new Map(), target })
+    expect(g.graph.patches).toEqual(patches as never)
+  })
+  test("naming something that isn't there cuts nothing", async () => {
+    const { interpret } = await import("../src/engine/index.ts")
+    const g = interpret({ text: "disconnect @in-touch-modal from server 9", handles: S, peek: () => undefined, memory: new Map() })
+    expect(g.graph.patches.some((p) => p.unlink === "*")).toBe(false)
+  })
+})
