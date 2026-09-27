@@ -50,6 +50,8 @@ export const EntryPatch = Schema.Struct({
   detach: Schema.optional(Schema.Boolean),
   /** "annotate @x: needs real copy": its annotation. */
   note: Schema.optional(Schema.String),
+  /** A collection's item type after a retype ("turn it into a list of contacts"). */
+  of: Schema.optional(NodeType),
   /** Its list, replaced (fields, links, rows): "change email to username". */
   items: Schema.optional(Schema.Array(Schema.String)),
   /** Remove it (and everything inside it). */

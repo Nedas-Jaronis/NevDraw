@@ -73,6 +73,8 @@ export const NodePatch = Schema.Struct({
   note: Schema.optional(Schema.String),
   /** Remove it and everything inside it. */
   remove: Schema.optional(Schema.Boolean),
+  /** A collection's new item type. */
+  of: Schema.optional(NodeType),
   /** Its new list (fields, links, rows). */
   items: Schema.optional(Schema.Array(Schema.String.pipe(Schema.maxLength(60))).pipe(Schema.maxItems(12))),
   /** Its new position among its siblings. */

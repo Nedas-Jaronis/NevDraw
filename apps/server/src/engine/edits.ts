@@ -1,7 +1,16 @@
 import type { EntryPatch, NodeType } from "@rtw/shared"
 import type { HandleInfo } from "./assemble.ts"
 import { classifyKeywords } from "../classify/keywords.ts"
-import { explicitColor } from "./modifiers.ts"
+import { collectionOf, explicitColor } from "./modifiers.ts"
+
+const NUMBER_WORDS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, twelve: 12 }
+/** "4 of them", "four contacts", "with 3 rows": how many, or 0. */
+const countIn = (s: string) => {
+  const m = /\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten|twelve)\b(?=\s+(?:of\s+them|[a-z]+s\b|items?|rows?|entries))/i.exec(s)
+  if (!m) return 0
+  const w = m[1]!.toLowerCase()
+  return NUMBER_WORDS[w] ?? Number.parseInt(w, 10)
+}
 
 const HANDLE = /@[a-z0-9][a-z0-9-]*/gi
 /** Words that mark a sentence as changing something that exists. */
@@ -31,17 +40,46 @@ export function editOf(text: string, known: ReadonlySet<string>): EntryPatch | n
   const label = renamed?.[1] ? titleCase(renamed[1].replace(/^(?:a|an|the)\s+/i, "")) : undefined
 
   let type: NodeType | undefined
-  const retype = label
+  let of: NodeType | undefined
+  let items: string[] | undefined
+  const into = label
     ? null
-    : new RegExp(`\\b(?:turn|convert|change|switch|transform|make)\\s+${h}\\s+(?:into|to)\\s+(?:a|an)\\s+(.+)$`, "i").exec(text)
+    : new RegExp(`\\b(?:turn|convert|change|switch|transform|make)\\s+${h}\\s+(?:into|to)\\s+(?:(?:a|an)\\s+)?(.+)$`, "i").exec(text)
+  // "make it 3 contacts", "make it a list of timers" (but "make it red" stays a color).
+  const made = label || into ? null : new RegExp(`\\bmake\\s+${h}\\s+(?:(?:a|an)\\s+)?(.+)$`, "i").exec(text)
+  const retype = into ?? (made && (countIn(made[1]!) > 1 || collectionOf(made[1]!)) ? made : null)
   if (retype) {
-    const t = classifyKeywords(retype[1]!).type
-    if (t !== "box") type = t
+    // "a list of contacts, 4 of them", "a table of timers", "4 contacts": a collection, with its rows.
+    const phrase = retype[1]!.trim()
+    const n = countIn(phrase)
+    const coll = collectionOf(phrase.replace(/,?\s*(?:with\s+)?(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|twelve)\s+of\s+them\s*$/i, ""))
+    if (coll && (coll.type === "list" || coll.type === "table")) {
+      type = coll.type
+      of = coll.of
+    } else if (n > 1) {
+      type = "list"
+      const t = classifyKeywords(phrase.replace(/^\s*\S+\s+/, "").replace(/s\b/, "")).type
+      if (t !== "box") of = t
+    } else {
+      const t = classifyKeywords(phrase).type
+      if (t !== "box") type = t
+    }
+    if (type && (type === "list" || type === "table") && n > 1) {
+      const noun = of ? of.replace(/-/g, " ").replace(/^./, (c) => c.toUpperCase()) : "Item"
+      items = Array.from({ length: Math.min(12, n) }, (_, i) => `${noun} ${i + 1}`)
+    }
   }
 
   const color = label ? undefined : (explicitColor(rest) ?? undefined)
   if (!label && !type && !color) return null
-  return { target, ...(label ? { label } : {}), ...(type ? { type } : {}), ...(color ? { color } : {}) }
+  return {
+    target,
+    ...(label ? { label } : {}),
+    ...(type ? { type } : {}),
+    ...(of ? { of } : {}),
+    ...(items ? { items } : {}),
+    ...(color ? { color } : {}),
+  }
 }
 
 /**
