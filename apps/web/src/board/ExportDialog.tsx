@@ -107,7 +107,7 @@ export function ExportDialog(props: { room: string; selected: ReadonlySet<string
               ))}
             </div>
           </Row>
-          <div className="mt-auto flex flex-col gap-2 pt-2">
+          <div className="mt-auto flex flex-col gap-3 pt-3">
             <div className="flex gap-2">
               <ActionButton primary busy={busy === "png"} onClick={() => run("png")}>
                 PNG
@@ -116,10 +116,10 @@ export function ExportDialog(props: { room: string; selected: ReadonlySet<string
                 PDF
               </ActionButton>
             </div>
-            <ActionButton busy={busy === "copy"} onClick={() => run("copy")}>
+            <ActionButton wide busy={busy === "copy"} onClick={() => run("copy")}>
               Copy to clipboard
             </ActionButton>
-            {note && <span className="text-center text-[11px] text-[var(--muted)]">{note}</span>}
+            {note && <span className="pt-0.5 text-center text-[11px] text-[var(--muted)]">{note}</span>}
           </div>
         </div>
       </div>
@@ -151,13 +151,14 @@ function Switch({ checked, onChange, label }: { checked: boolean; onChange: (v: 
   )
 }
 
-function ActionButton(props: { primary?: boolean; busy: boolean; onClick: () => void; children: ReactNode }) {
+function ActionButton(props: { primary?: boolean; wide?: boolean; busy: boolean; onClick: () => void; children: ReactNode }) {
   return (
     <button
       type="button"
       disabled={props.busy}
       onClick={props.onClick}
-      className={`h-8 flex-1 rounded-lg text-xs font-medium transition active:scale-[0.98] disabled:opacity-60 ${
+      // Side by side the buttons share the row; the wide one takes its own full-height row.
+      className={`h-9 shrink-0 rounded-lg text-xs font-medium transition active:scale-[0.98] disabled:opacity-60 ${props.wide ? "w-full" : "flex-1"} ${
         props.primary ? "bg-[var(--ink)] text-[var(--panel)]" : "border border-[var(--panel-border)] hover:bg-[var(--ink)]/5"
       }`}
     >
