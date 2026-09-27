@@ -43,10 +43,12 @@ for (let i = 0; i < 60; i++) {
 
 console.log("› opening a Cloudflare tunnel…")
 // The server owns the tunnel (the same one "Go remote" in the profile menu opens).
-const res = await fetch(`http://localhost:${port}/api/session/remote`, { method: "POST" })
-const body = (await res.json().catch(() => ({}))) as { publicUrl?: string; error?: string }
+const body = await fetch(`http://localhost:${port}/api/session/remote`, { method: "POST" })
+  .then((r) => r.json() as Promise<{ publicUrl?: string; error?: string }>)
+  .catch((e: unknown) => ({ publicUrl: undefined, error: e instanceof Error ? e.message : String(e) }))
 if (!body.publicUrl) {
-  console.error(`Couldn't open the tunnel: ${body.error ?? res.status}`)
+  // Never leave the server (and its tunnel) running behind a failed share.
+  console.error(`Couldn't open the tunnel: ${body.error ?? "unknown error"}`)
   server.kill()
   process.exit(1)
 }
