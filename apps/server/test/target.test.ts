@@ -185,3 +185,13 @@ test("retyping into a collection keeps count and kind: 'change this to a list of
   expect(run("turn it into a table of timers").patches).toEqual([{ target: "@contact-form", type: "table", of: "timer" }])
   expect(run("make it red").patches).toEqual([{ target: "@contact-form", color: "#e03131" }])
 })
+
+test("'change to a clock' / 'make it a clock' with a target changes the element itself", async () => {
+  const { interpret } = await import("../src/engine/index.ts")
+  const H2 = new Map([["@contact-form", { container: true, type: "form" as never, label: "Contact form", parent: null }]])
+  for (const text of ["change to a clock", "turn into a clock", "make it a clock", "change it to a clock"]) {
+    const g = interpret({ text, handles: H2, peek: () => undefined, memory: new Map(), target: "@contact-form" }).graph
+    expect(g.nodes).toEqual([])
+    expect(g.patches).toEqual([{ target: "@contact-form", type: "clock" }])
+  }
+})

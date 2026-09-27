@@ -47,7 +47,9 @@ export function editOf(text: string, known: ReadonlySet<string>): EntryPatch | n
     : new RegExp(`\\b(?:turn|convert|change|switch|transform|make)\\s+${h}\\s+(?:into|to)\\s+(?:(?:a|an)\\s+)?(.+)$`, "i").exec(text)
   // "make it 3 contacts", "make it a list of timers" (but "make it red" stays a color).
   const made = label || into ? null : new RegExp(`\\bmake\\s+${h}\\s+(?:(?:a|an)\\s+)?(.+)$`, "i").exec(text)
-  const retype = into ?? (made && (countIn(made[1]!) > 1 || collectionOf(made[1]!)) ? made : null)
+  // "make it a clock" retypes too; "make it red" / "make it a red clock" is a color.
+  const madeKind = made && !explicitColor(made[1]!) && classifyKeywords(made[1]!).type !== "box"
+  const retype = into ?? (made && (countIn(made[1]!) > 1 || collectionOf(made[1]!) || madeKind) ? made : null)
   if (retype) {
     // "a list of contacts, 4 of them", "a table of timers", "4 contacts": a collection, with its rows.
     const phrase = retype[1]!.trim()
