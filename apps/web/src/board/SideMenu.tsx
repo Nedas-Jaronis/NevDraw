@@ -60,10 +60,11 @@ export function SideMenu(props: { roomId: string; status: string; onExport: () =
             <motion.aside
               data-ui
               aria-label="Menu"
-              initial={{ opacity: 0, x: -16 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -16, transition: { duration: 0.14 } }}
-              transition={{ type: "spring", stiffness: 420, damping: 36 }}
+              // Same motion as the help sidebar: slides fully in from its edge (it floats 12px in, hence 110%).
+              initial={{ x: "-110%" }}
+              animate={{ x: 0 }}
+              exit={{ x: "-110%", transition: { duration: 0.18, ease: [0.4, 0, 1, 1] } }}
+              transition={{ type: "spring", stiffness: 380, damping: 40 }}
               className={`${SHEET} pointer-events-auto left-3`}
             >
               <div className="flex items-start justify-between px-5 pb-3 pt-5">

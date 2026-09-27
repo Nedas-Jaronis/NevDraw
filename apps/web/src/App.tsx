@@ -1,5 +1,6 @@
 import { useState } from "react"
 import { Board } from "./board/Board.tsx"
+import { DocsPage } from "./docs/DocsPage.tsx"
 import { type Identity, loadIdentity, newRoomId, PALETTE, randomColor, saveIdentity } from "./identity.ts"
 
 function roomFromPath(): string | null {
@@ -11,6 +12,7 @@ export function App() {
   const [identity, setIdentity] = useState<Identity | null>(loadIdentity)
   const roomId = roomFromPath()
 
+  if (/^\/docs\/?$/.test(location.pathname)) return <DocsPage />
   if (!roomId) return <Home />
   if (!identity)
     return (
@@ -39,6 +41,9 @@ function Home() {
         >
           New board
         </button>
+        <a href="/docs" className="mt-3 block text-center text-sm text-[var(--muted)] underline-offset-4 hover:text-[var(--ink)] hover:underline">
+          How to use it
+        </a>
       </div>
     </main>
   )
