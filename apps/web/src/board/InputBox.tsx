@@ -35,12 +35,20 @@ export function InputBox(props: {
   const [dismissed, setDismissed] = useState<number | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const aimed = props.target.at(-1)
-  // Retargeting re-reads what's already typed against the new element.
+  // An edit belongs to the element it was typed for: clicking off (or onto another element)
+  // resets it, so a half-written "change to a clock" never lingers or lands somewhere else.
   const lastTarget = useRef(aimed?.id)
   useEffect(() => {
     if (lastTarget.current === aimed?.id) return
+    const was = lastTarget.current
     lastTarget.current = aimed?.id
-    if (text.trim()) props.onChange(text)
+    if (!text.trim()) return
+    if (was !== undefined) {
+      props.onDiscard()
+      update("", 0)
+      props.onHighlight(null)
+    } else props.onChange(text) // typed first, then picked what it's for: read it against that element
+
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [aimed?.id])
 
