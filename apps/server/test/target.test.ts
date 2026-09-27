@@ -76,3 +76,69 @@ test("click a page, then add inside it, remove a part and reorder, all on Enter"
   const navbar = made.find((n) => n.type === "navbar")!
   expect(up.nodes.find((n) => n.id === footer.id)!.order).toBeLessThan(navbar.order)
 })
+
+describe("arrows from the target, and removing arrows by name", () => {
+  const B = new Map<string, Info>([
+    ["@contact-form", { container: true, type: "form" as never, label: "Contact form", parent: null }],
+    ["@server", { container: false, type: "service" as never, label: "Server", parent: null }],
+    ["@server2", { container: false, type: "service" as never, label: "Server2", parent: null }],
+    ["@pricing-page", { container: true, type: "page" as never, label: "Pricing page", parent: null }],
+  ])
+  test("'link towards another server' is an arrow to the server that's there, not a link inside the form", async () => {
+    const { readTargeted } = await import("../src/engine/target.ts")
+    const only = new Map([...B].filter(([h]) => h !== "@server2"))
+    expect(readTargeted("link towards another server", "@contact-form", only)).toEqual({ patches: [], rest: "@contact-form connects to @server", command: true })
+    expect(readTargeted("it calls the pricing page", "@contact-form", only).rest).toBe("@contact-form calls @pricing-page")
+    // Nothing like it on the board: a new one, next to the form.
+    const t = readTargeted("send it to a payments api", "@contact-form", only)
+    expect(t).toMatchObject({ rest: "@contact-form connects to a payments api", command: false })
+  })
+  test("unlink by name, no @ needed", async () => {
+    const { unlinkByName } = await import("../src/engine/target.ts")
+    expect(unlinkByName("unlink all the contact form to server links", B, null)).toEqual([
+      { target: "@contact-form", unlink: "@server" },
+      { target: "@contact-form", unlink: "@server2" },
+    ])
+    expect(unlinkByName("disconnect the contact form and server2", B, null)).toEqual([{ target: "@contact-form", unlink: "@server2" }])
+    expect(unlinkByName("remove the arrows between the contact form and the pricing page", B, null)).toEqual([
+      { target: "@contact-form", unlink: "@pricing-page" },
+    ])
+    expect(unlinkByName("unlink it", B, "@contact-form")).toEqual([{ target: "@contact-form", unlink: "*" }])
+    expect(unlinkByName("remove the footer", B, "@contact-form")).toBeNull()
+  })
+})
+
+test("'take everything out of the landing page and make it blank again' removes all its parts, nothing else", () => {
+  for (const text of [
+    "take everything out of the landing page and make it blank again",
+    "clear it",
+    "make it blank",
+    "remove everything inside it",
+  ]) {
+    const t = readTargeted(text, "@landing-page", H)
+    expect(t.patches.map((p) => p.target).sort()).toEqual(["@footer", "@get-started", "@hero", "@subtitle"])
+    expect(t.patches.every((p) => p.remove)).toBe(true)
+    expect(t.command).toBe(true)
+  }
+})
+
+test("a new page while something is targeted goes on the board, not inside it", async () => {
+  const { placeInTarget } = await import("../src/engine/target.ts")
+  const g = placeInTarget(
+    {
+      nodes: [
+        { key: "p0", type: "page", label: "Landing page", parent: null, props: {} },
+        { key: "p1", type: "input", label: "Phone", parent: null, props: {} },
+      ],
+      edges: [],
+      suggestions: [],
+      patches: [],
+    },
+    "@footer",
+    H,
+  )
+  expect(g.nodes.map((n) => [n.key, n.parent])).toEqual([
+    ["p0", null],
+    ["p1", "@footer"],
+  ])
+})

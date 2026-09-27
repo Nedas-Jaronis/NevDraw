@@ -4,7 +4,7 @@ import type { PieceState } from "../classify/Jev.ts"
 import { keywordAnswers, type PieceAnswers } from "./answers.ts"
 import { detachOf, noteOf } from "./edits.ts"
 import { itemEditOf } from "./items.ts"
-import { placeInTarget, readTargeted } from "./target.ts"
+import { placeInTarget, readTargeted, unlinkByName } from "./target.ts"
 import { assemble, classificationText, type HandleInfo } from "./assemble.ts"
 import { type Piece, split } from "./split.ts"
 import { type PieceMemory, stabilize } from "./stabilize.ts"
@@ -226,13 +226,14 @@ export function interpret(input: {
     missing: [] as PieceState[],
     debug: [] as PieceDebug[],
     pieces: [] as Piece[],
+    command: true,
   })
   const said = withoutPartialMentions(input.text.replace(/`/g, ""), input.handles)
   const target = input.target && input.handles.has(input.target) ? input.target : null
   // Nothing to read yet: "c", "@c" (a reference being typed), or only references.
   if (!meaningful(said)) return only([])
   // "detach @a from @b", "disconnect @a and @b": one command, not a sentence to split.
-  const detach = noteOf(said, input.handles) ?? detachOf(said, input.handles)
+  const detach = noteOf(said, input.handles) ?? detachOf(said, input.handles) ?? unlinkByName(said, input.handles, target)
   if (detach) return only(detach)
   // "change email to username": one entry of an element's list, everything else untouched.
   const listEdit = itemEditOf(said, input.handles, target)
@@ -265,5 +266,6 @@ export function interpret(input: {
     for (const p of aimed.patches) patches.set(p.target, { ...patches.get(p.target), ...p })
     graph = { ...graph, patches: [...patches.values()] }
   }
-  return { graph, memory, missing, debug, pieces }
+  // With a target, text that only connects / edits existing elements is a command, not a description.
+  return { graph, memory, missing, debug, pieces, command: aimed?.command ?? false }
 }

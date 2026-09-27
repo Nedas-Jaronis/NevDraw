@@ -72,7 +72,7 @@ type Room = {
 /** "Checkout Page", "@checkout page!" → "@checkout-page"; null when nothing's left. */
 
 /** Words that ask for something to be removed; without one, removals are never applied. */
-const REMOVAL = /\b(remove|delete|drop|get rid|without|no more|lose|erase|ditch|kill|take (?:out|away))\b/i
+const REMOVAL = /\b(remove|delete|drop|get rid|without|no more|lose|erase|ditch|kill|clear|empty|blank|wipe|take (?:out|away)|take .+ out)\b/i
 
 export const normalizeHandle = (raw: string): string | null => {
   const body = raw
@@ -414,7 +414,7 @@ export const RoomsLive = Layer.effect(
             lastGraph = r.graph
             // Explicit commands on @handles (edits, wrap, include) are parsed by code and stay
             // deterministic; otherwise the LLM's reading of this exact text wins over the instant one.
-            explicitCommand = r.graph.patches.length > 0
+            explicitCommand = r.graph.patches.length > 0 || r.command
             const fromLlm = llmResult?.text === text && !explicitCommand ? keepComputed(llmResult.graph, r.graph) : null
             const graph = referToExisting(
               // The AI never removes anything the text didn't ask to remove.
