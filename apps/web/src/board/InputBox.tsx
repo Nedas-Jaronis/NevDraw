@@ -215,6 +215,8 @@ export function InputBox(props: {
                 props.onHighlight(null)
               } else if (e.key === "Escape") {
                 e.preventDefault()
+                // Nothing typed: Esc stops editing the clicked element.
+                if (!text.trim() && aimed) props.onTarget(null)
                 props.onDiscard()
                 update("", 0)
                 props.onHighlight(null)

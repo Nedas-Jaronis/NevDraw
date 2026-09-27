@@ -44,7 +44,8 @@ export function RootView(props: {
       // The dragger's own element tracks the pointer exactly; everyone else's glides.
       transition={dragging ? { duration: 0 } : spring}
       className={`absolute left-0 top-0 ${draft ? "" : "cursor-grab active:cursor-grabbing"}`}
-      style={{ width: isContainer(node) ? CONTAINER_WIDTH : LEAF_WIDTH, zIndex: dragging || selected ? 10 : undefined }}
+      style={{ width: isContainer(node) ? CONTAINER_WIDTH : LEAF_WIDTH, // Drafts always sit on top of committed elements, so you can see what you're making.
+        zIndex: draft ? 20 : dragging || selected ? 10 : undefined }}
     >
       {selected && (
         <>
