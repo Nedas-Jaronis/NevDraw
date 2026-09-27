@@ -114,7 +114,7 @@ test("arrows travel with drafts, commit, persist, and vanish with their nodes", 
   const a = await join("Ada")
   const b = await join("Bo")
   a.c.send(new SetInput({ text: "api server writes to postgres and publishes to a queue", anchor: { x: 0, y: 0 } }))
-  const draft = await b.c.waitFor(is("DraftUpdated"))
+  const draft = await a.c.waitFor(is("DraftUpdated"))
   expect(draft.draft.edges.map((e) => e.kind)).toEqual(["writes", "publishes"])
 
   a.c.send(new Commit())

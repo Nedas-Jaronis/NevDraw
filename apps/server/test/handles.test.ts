@@ -157,7 +157,7 @@ test("committing assigns unique handles to every element", async () => {
   expect(second.nodes[0]!.handle).toBe("@landing-page-2")
 })
 
-test("a teammate adds dashed children inside a committed page, then commits into it", async () => {
+test("a teammate drafts children inside a committed page (privately), then commits into it", async () => {
   const { join } = await setup()
   const a = await join("Ada")
   const b = await join("Bo")
@@ -166,7 +166,7 @@ test("a teammate adds dashed children inside a committed page, then commits into
   const [page] = (await b.c.waitFor(is("NodesCommitted"))).nodes
 
   b.c.send(new SetInput({ text: "add a signup form to @landing-page", anchor }))
-  const d = await a.c.waitFor(is("DraftUpdated", (m) => m.draft.text.includes("@landing-page")))
+  const d = await b.c.waitFor(is("DraftUpdated", (m) => m.draft.text.includes("@landing-page")))
   expect(d.draft.nodes).toHaveLength(1)
   expect(d.draft.nodes[0]).toMatchObject({ type: "form", parent: page!.id, order: 1 })
 

@@ -60,7 +60,8 @@ type Room = {
   /** @handle → node id for every committed element. */
   handles: Map<string, string>
   /** Committed elements currently pushed aside by drafts (derived, never saved). */
-  displaced: ReadonlyMap<string, { x: number; y: number }>
+  /** Per typist: the committed elements their own (private) draft is pushing aside. */
+  displaced: Map<string, ReadonlyMap<string, { x: number; y: number }>>
   /** Resolves once the committed layer has been loaded from the store. */
   ready: Deferred.Deferred<void>
 }
@@ -129,23 +130,39 @@ export const RoomsLive = Layer.effect(
         { discard: true },
       )
 
+    /** To one person only (their own draft, suggestions, layout). */
+    const sendTo = (room: Room, userId: string, msg: ServerMessage) =>
+      Effect.suspend(() => {
+        const c = room.clients.get(userId)
+        return c ? Queue.offer(c.outbox, msg) : Effect.void
+      })
+
     const displacementList = (m: ReadonlyMap<string, { x: number; y: number }>): Displacement[] =>
       [...m].map(([id, p]) => ({ id, x: p.x, y: p.y }))
 
-    /** Recompute who drafts are pushing; broadcast only when it changes. */
+    /**
+     * Drafts are private: each typist sees committed elements make room for their own draft,
+     * nobody else sees anything move. Recompute per person; send only when it changes.
+     */
     const relayout = (room: Room) =>
-      Effect.suspend(() => {
-        const committed = [...room.nodes.values()]
-        const drafts = [...room.drafts.values()].flatMap((d) => d.nodes)
-        const next = pushAside({ committed, drafts, sizes: estimateSizes([...committed, ...drafts]) })
-        const same = next.size === room.displaced.size && [...next].every(([id, p]) => {
-          const q = room.displaced.get(id)
-          return q !== undefined && q.x === p.x && q.y === p.y
-        })
-        if (same) return Effect.void
-        room.displaced = next
-        return broadcast(room, new LayoutUpdated({ displaced: displacementList(next) }))
-      })
+      Effect.forEach(
+        [...room.clients.keys()],
+        (userId) =>
+          Effect.suspend(() => {
+            const committed = [...room.nodes.values()]
+            const drafts = room.drafts.get(userId)?.nodes ?? []
+            const next = drafts.length ? pushAside({ committed, drafts, sizes: estimateSizes([...committed, ...drafts]) }) : new Map()
+            const prev = room.displaced.get(userId) ?? new Map()
+            const same = next.size === prev.size && [...next].every(([id, p]) => {
+              const q = prev.get(id)
+              return q !== undefined && q.x === p.x && q.y === p.y
+            })
+            if (same) return Effect.void
+            room.displaced.set(userId, next)
+            return sendTo(room, userId, new LayoutUpdated({ displaced: displacementList(next) }))
+          }),
+        { discard: true },
+      )
 
     /**
      * Give every node without a handle a unique, readable one, register it,
@@ -259,8 +276,9 @@ export const RoomsLive = Layer.effect(
             users: [...room.clients.values()].map((c) => c.user),
             nodes: [...room.nodes.values()],
             edges: [...room.edges.values()],
-            drafts: [...room.drafts.values()],
-            displaced: displacementList(room.displaced),
+            // Drafts are private to their typist; a newcomer has none yet.
+            drafts: [],
+            displaced: [],
           }),
         )
         yield* broadcast(room, new UserJoined({ user }), user.id)
@@ -340,7 +358,7 @@ export const RoomsLive = Layer.effect(
           const hadSuggestions = lastSuggestions !== "[]"
           const clearSuggestions = hadSuggestions ? sendSuggestions([]) : Effect.void
           return room.drafts.delete(user.id)
-            ? Effect.all([broadcast(room, new DraftCleared({ userId: user.id })), relayout(room), clearSuggestions], { discard: true })
+            ? Effect.all([sendTo(room, user.id, new DraftCleared({ userId: user.id })), relayout(room), clearSuggestions], { discard: true })
             : clearSuggestions
         })
 
@@ -388,7 +406,8 @@ export const RoomsLive = Layer.effect(
             lastDraftSignature = signature
             room.drafts.set(user.id, draft)
             if (unchanged) return Effect.as(sendSuggestions(suggestions), r.missing)
-            return broadcast(room, new DraftUpdated({ draft, debug: r.debug })).pipe(
+            // Only the typist sees their draft; everyone else sees it once it's committed.
+            return sendTo(room, user.id, new DraftUpdated({ draft, debug: r.debug })).pipe(
               Effect.zipRight(relayout(room)),
               Effect.zipRight(sendSuggestions(suggestions)),
               Effect.as(r.missing),
@@ -548,7 +567,7 @@ export const RoomsLive = Layer.effect(
             if (moved.length) yield* broadcast(room, new NodesUpdated({ nodes: moved }))
             yield* broadcast(room, new NodesCommitted({ nodes: committed, edges: draft.edges }))
             if (patched.length) yield* broadcast(room, new NodesUpdated({ nodes: patched }))
-            yield* broadcast(room, new DraftCleared({ userId: user.id }))
+            yield* sendTo(room, user.id, new DraftCleared({ userId: user.id }))
             yield* relayout(room)
           }),
 
@@ -660,6 +679,7 @@ export const RoomsLive = Layer.effect(
             if (!room.clients.delete(user.id)) return
             yield* cancelInflight
             yield* clearDraft
+            room.displaced.delete(user.id)
             yield* broadcast(room, new UserLeft({ id: user.id }))
             if (room.clients.size === 0) rooms.delete(roomId)
           }),

@@ -141,10 +141,10 @@ test("a draft appears instantly from keywords, then Jev's answer refines it", as
   const a = await join(s.url, "Ada")
   const b = await join(s.url, "Bo")
   a.send(new SetInput({ text: "big brand moment", anchor }))
-  const first = await b.waitFor(is("DraftUpdated"))
+  const first = await a.waitFor(is("DraftUpdated"))
   expect(first.draft.nodes[0]!.type).toBe("box")
   expect(first.debug?.[0]?.source).toBe("keyword")
-  const refined = await b.waitFor(is("DraftUpdated", (m) => m.draft.nodes[0]?.type === "hero"))
+  const refined = await a.waitFor(is("DraftUpdated", (m) => m.draft.nodes[0]?.type === "hero"))
   expect(refined.draft.nodes[0]!.id).toBe(first.draft.nodes[0]!.id) // same element, it morphs
   expect(refined.debug?.[0]?.source).toBe("jev")
 })
@@ -171,11 +171,11 @@ test("a stale Jev answer never overwrites newer text (latest input wins)", async
   const a = await join(s.url, "Ada")
   const b = await join(s.url, "Bo")
   a.send(new SetInput({ text: "old idea", anchor }))
-  await b.waitFor(is("DraftUpdated", (m) => m.draft.text === "old idea"))
+  await a.waitFor(is("DraftUpdated", (m) => m.draft.text === "old idea"))
   a.send(new SetInput({ text: "postgres", anchor }))
-  await b.waitFor(is("DraftUpdated", (m) => m.draft.text === "postgres"))
+  await a.waitFor(is("DraftUpdated", (m) => m.draft.text === "postgres"))
   await Bun.sleep(450) // the slow "old idea" answer lands in here, and must not be shown
-  const texts = b.received.flatMap((m) => (m._tag === "DraftUpdated" ? [m.draft.text] : []))
+  const texts = a.received.flatMap((m) => (m._tag === "DraftUpdated" ? [m.draft.text] : []))
   expect(texts.lastIndexOf("old idea")).toBeLessThan(texts.indexOf("postgres"))
 })
 

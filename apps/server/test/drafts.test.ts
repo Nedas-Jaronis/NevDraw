@@ -27,21 +27,21 @@ async function join(url: string, room: string, name: string, color = "#e11d48") 
 
 const anchor = { x: 400, y: 300 }
 
-test("typing broadcasts a draft to everyone, including the raw text", async () => {
+test("a draft is private: only the typist sees it, including the raw text", async () => {
   const s = await boot()
   const a = await join(s.url, "r", "Ada")
   const b = await join(s.url, "r", "Bo")
 
   a.c.send(new SetInput({ text: "landing page", anchor }))
-  const seen = await b.c.waitFor(is("DraftUpdated"))
+  const seen = await a.c.waitFor(is("DraftUpdated"))
   expect(seen.draft.userId).toBe(a.selfId)
   expect(seen.draft.text).toBe("landing page")
   expect(seen.draft.nodes).toHaveLength(1)
   expect(seen.draft.nodes[0]).toMatchObject({ type: "page", label: "Landing page", authorColor: "#e11d48" })
-  // The typist sees their own draft too.
-  await a.c.waitFor(is("DraftUpdated"))
+  await Bun.sleep(100)
+  // Nobody else sees it, or anything move for it.
+  expect(b.c.received.some((m) => m._tag === "DraftUpdated" || m._tag === "DraftCleared" || m._tag === "LayoutUpdated")).toBe(false)
 })
-
 test("a draft keeps its node id and position while typing continues", async () => {
   const s = await boot()
   const a = await join(s.url, "r", "Ada")
@@ -59,38 +59,35 @@ test("Enter commits the draft for everyone, reusing the draft's id", async () =>
   const a = await join(s.url, "r", "Ada")
   const b = await join(s.url, "r", "Bo")
   a.c.send(new SetInput({ text: "redis cache", anchor }))
-  const draft = await b.c.waitFor(is("DraftUpdated"))
+  const draft = await a.c.waitFor(is("DraftUpdated"))
   a.c.send(new Commit())
   const committed = await b.c.waitFor(is("NodesCommitted"))
   expect(committed.nodes.map((n) => n.id)).toEqual([draft.draft.nodes[0]!.id])
   expect(committed.nodes[0]!.type).toBe("cache")
-  await b.c.waitFor(is("DraftCleared", (m) => m.userId === a.selfId))
+  await a.c.waitFor(is("DraftCleared", (m) => m.userId === a.selfId))
+  expect(b.c.received.some((m) => m._tag === "DraftUpdated")).toBe(false)
 })
-
-test("Esc discards the draft for everyone and commits nothing", async () => {
+test("Esc discards the draft and commits nothing", async () => {
   const s = await boot()
   const a = await join(s.url, "r", "Ada")
   const b = await join(s.url, "r", "Bo")
   a.c.send(new SetInput({ text: "signup form", anchor }))
-  await b.c.waitFor(is("DraftUpdated"))
+  await a.c.waitFor(is("DraftUpdated"))
   a.c.send(new Discard())
-  await b.c.waitFor(is("DraftCleared", (m) => m.userId === a.selfId))
+  await a.c.waitFor(is("DraftCleared", (m) => m.userId === a.selfId))
   a.c.send(new Commit()) // nothing left to commit
   await Bun.sleep(50)
-  expect(b.c.received.some((m) => m._tag === "NodesCommitted")).toBe(false)
+  expect(b.c.received.some((m) => m._tag === "NodesCommitted" || m._tag === "DraftUpdated")).toBe(false)
 })
-
 test("clearing the input clears the draft", async () => {
   const s = await boot()
   const a = await join(s.url, "r", "Ada")
-  const b = await join(s.url, "r", "Bo")
   a.c.send(new SetInput({ text: "hero", anchor }))
-  await b.c.waitFor(is("DraftUpdated"))
+  await a.c.waitFor(is("DraftUpdated"))
   a.c.send(new SetInput({ text: "   ", anchor }))
-  await b.c.waitFor(is("DraftCleared"))
+  await a.c.waitFor(is("DraftCleared"))
 })
-
-test("a late joiner receives the committed board plus live drafts", async () => {
+test("a late joiner receives the committed board, but not anyone's draft", async () => {
   const s = await boot()
   const a = await join(s.url, "r", "Ada")
   a.c.send(new SetInput({ text: "api server", anchor }))
@@ -101,20 +98,21 @@ test("a late joiner receives the committed board plus live drafts", async () => 
 
   const late = await join(s.url, "r", "Cy")
   expect(late.welcome.nodes.map((n) => n.type)).toEqual(["service"])
-  expect(late.welcome.drafts).toHaveLength(1)
-  expect(late.welcome.drafts[0]).toMatchObject({ userId: a.selfId, text: "postgres" })
+  expect(late.welcome.drafts).toEqual([])
+  expect(late.welcome.displaced).toEqual([])
 })
-
-test("disconnecting clears that user's draft", async () => {
+test("disconnecting drops that user's draft; nothing is committed", async () => {
   const s = await boot()
   const a = await join(s.url, "r", "Ada")
   const b = await join(s.url, "r", "Bo")
   a.c.send(new SetInput({ text: "queue", anchor }))
-  await b.c.waitFor(is("DraftUpdated"))
+  await a.c.waitFor(is("DraftUpdated"))
   a.c.close()
-  await b.c.waitFor(is("DraftCleared", (m) => m.userId === a.selfId))
+  await b.c.waitFor(is("UserLeft", (m) => m.id === a.selfId))
+  const c = await join(s.url, "r", "Cy")
+  expect(c.welcome.nodes).toEqual([])
+  expect(c.welcome.drafts).toEqual([])
 })
-
 test("committed nodes survive a server restart; drafts do not (SQLite)", async () => {
   const dir = mkdtempSync(joinPath(tmpdir(), "rtw-"))
   cleanups.push(() => rmSync(dir, { recursive: true, force: true }))
@@ -139,21 +137,22 @@ test("committed nodes survive a server restart; drafts do not (SQLite)", async (
 test("each client's messages apply in order (type, commit, type again)", async () => {
   const s = await boot()
   const a = await join(s.url, "r", "Ada")
-  const b = await join(s.url, "r", "Bo")
   a.c.send(new SetInput({ text: "api", anchor }))
   a.c.send(new Commit())
   a.c.send(new SetInput({ text: "worker", anchor }))
-  await b.c.waitFor(is("DraftUpdated", (m) => m.draft.text === "worker"))
-  const tags = b.c.received.map((m) => (m._tag === "DraftUpdated" ? `Draft:${m.draft.text}` : m._tag))
-  expect(tags.slice(tags.indexOf("Draft:api"))).toEqual(["Draft:api", "NodesCommitted", "DraftCleared", "Draft:worker"])
+  await a.c.waitFor(is("DraftUpdated", (m) => m.draft.text === "worker"))
+  const tags = a.c.received
+    .map((m) => (m._tag === "DraftUpdated" ? `Draft:${m.draft.text}` : m._tag))
+    .filter((t) => t.startsWith("Draft") || t === "NodesCommitted")
+  const from = tags.indexOf("Draft:api")
+  expect(tags.slice(from).filter((t, i, all) => t !== all[i - 1])).toEqual(["Draft:api", "NodesCommitted", "DraftCleared", "Draft:worker"])
 })
-
 test("a nested entry arrives as a page draft with its children linked in order", async () => {
   const s = await boot()
   const a = await join(s.url, "r", "Ada")
   const b = await join(s.url, "r", "Bo")
   a.c.send(new SetInput({ text: "landing page with navbar, hero, pricing table and signup form", anchor }))
-  const { draft } = await b.c.waitFor(is("DraftUpdated"))
+  const { draft } = await a.c.waitFor(is("DraftUpdated"))
   const [page, ...kids] = draft.nodes
   expect(page).toMatchObject({ type: "page", parent: null })
   expect(kids.map((k) => [k.type, k.parent, k.order])).toEqual([

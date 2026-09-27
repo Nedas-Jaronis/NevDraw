@@ -57,8 +57,8 @@ export function HelpButton() {
                   one board, at the same time.
                 </p>
                 <p className="mt-2">
-                  Everyone gets their own input box. As you type, your idea appears as a dashed draft that everyone can watch take
-                  shape. Press Enter and it becomes real. Pages, forms and heroes sit next to the servers, queues and databases behind
+                  Everyone gets their own input box. As you type, your idea takes shape as a dashed draft only you can see. Press
+                  Enter and it lands on the board for everyone. Pages, forms and heroes sit next to the servers, queues and databases behind
                   them, with arrows between them. No dragging boxes from a palette: you describe it, the board draws it.
                 </p>
               </Section>

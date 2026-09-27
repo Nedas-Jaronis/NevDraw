@@ -100,11 +100,13 @@ test("a growing draft pushes others aside; Esc lets them settle back", async () 
   const [api] = (await b.c.waitFor(is("NodesCommitted"))).nodes
 
   b.c.send(new SetInput({ text: "postgres", anchor })) // lands on top of the api server
-  const pushed = await a.c.waitFor(is("LayoutUpdated", (m) => m.displaced.length > 0))
+  // The typist sees the api server make room; nobody else sees anything move for a private draft.
+  const pushed = await b.c.waitFor(is("LayoutUpdated", (m) => m.displaced.length > 0))
   expect(pushed.displaced[0]!.id).toBe(api!.id)
+  expect(a.c.received.some((m) => m._tag === "LayoutUpdated" && m.displaced.length > 0)).toBe(false)
 
   b.c.send(new Discard())
-  await a.c.waitFor(is("LayoutUpdated", (m) => m.displaced.length === 0))
+  await b.c.waitFor(is("LayoutUpdated", (m) => m.displaced.length === 0))
 })
 
 test("committing keeps pushed elements where they were pushed", async () => {
@@ -115,7 +117,7 @@ test("committing keeps pushed elements where they were pushed", async () => {
   a.c.send(new Commit())
   const [api] = (await b.c.waitFor(is("NodesCommitted"))).nodes
   b.c.send(new SetInput({ text: "postgres", anchor }))
-  const pushed = await a.c.waitFor(is("LayoutUpdated", (m) => m.displaced.length > 0))
+  const pushed = await b.c.waitFor(is("LayoutUpdated", (m) => m.displaced.length > 0))
   b.c.send(new Commit())
   const saved = await a.c.waitFor(is("NodesUpdated", (m) => m.nodes.some((n) => n.id === api!.id)))
   expect(saved.nodes[0]).toMatchObject({ x: pushed.displaced[0]!.x, y: pushed.displaced[0]!.y })
@@ -134,11 +136,11 @@ test("a new draft goes around a pinned element instead of pushing it", async () 
   await a.c.waitFor(is("NodesUpdated"))
 
   b.c.send(new SetInput({ text: "postgres", anchor }))
-  const d = await a.c.waitFor(is("DraftUpdated", (m) => m.draft.text === "postgres"))
+  const d = await b.c.waitFor(is("DraftUpdated", (m) => m.draft.text === "postgres"))
   const pg = d.draft.nodes[0]!
   expect(overlaps({ x: pg.x, y: pg.y, w: 240, h: 46 }, { x: api!.x, y: api!.y, w: 240, h: 46 })).toBe(false)
   await Bun.sleep(50)
-  expect(a.c.received.some((m) => m._tag === "LayoutUpdated" && m.displaced.length > 0)).toBe(false)
+  expect(b.c.received.some((m) => m._tag === "LayoutUpdated" && m.displaced.length > 0)).toBe(false)
 })
 
 test("two people typing at the same spot don't stack their drafts", async () => {
@@ -146,9 +148,9 @@ test("two people typing at the same spot don't stack their drafts", async () => 
   const a = await join("Ada")
   const b = await join("Bo")
   a.c.send(new SetInput({ text: "landing page", anchor }))
-  await b.c.waitFor(is("DraftUpdated"))
+  await a.c.waitFor(is("DraftUpdated"))
   b.c.send(new SetInput({ text: "pricing page", anchor }))
-  const bd = await a.c.waitFor(is("DraftUpdated", (m) => m.draft.text === "pricing page"))
+  const bd = await b.c.waitFor(is("DraftUpdated", (m) => m.draft.text === "pricing page"))
   const ad = a.c.received.find(is("DraftUpdated", (m) => m.draft.text === "landing page"))!
   const r = (n: BoardNode) => ({ x: n.x, y: n.y, w: 320, h: 100 })
   expect(overlaps(r(ad.draft.nodes[0]!), r(bd.draft.nodes[0]!))).toBe(false)
