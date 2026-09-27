@@ -205,3 +205,19 @@ test("pointer words and 'the …' refer back instead of making elements ('in whi
   ])
   expect(g.edges.length).toBe(5 * 2 + 2 * 3)
 })
+
+test("the AI's system pieces are never nested: a box holding servers becomes a group its arrows reach", async () => {
+  const { systemFlat } = await import("../src/engine/index.ts")
+  const g = systemFlat({
+    nodes: [
+      { key: "stack", type: "section", label: "Server stack", parent: null, props: {} },
+      ...[1, 2].map((i) => ({ key: `s${i}`, type: "service" as const, label: `Server ${i}`, parent: "stack", props: {} })),
+      { key: "lb", type: "service", label: "Load balancer", parent: null, props: {} },
+    ],
+    edges: [{ from: "stack", to: "lb", kind: "calls" }],
+    suggestions: [],
+    patches: [],
+  })
+  expect(g.nodes.map((n) => [n.key, n.parent])).toEqual([["s1", null], ["s2", null], ["lb", null]])
+  expect(g.edges.map((e) => `${e.from}>${e.to}`)).toEqual(["s1>lb", "s2>lb"])
+})
