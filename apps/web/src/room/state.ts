@@ -62,8 +62,8 @@ export function applyServerMessage(state: RoomState, msg: ServerMessage): RoomSt
     }
     case "UserTyping": {
       const u = state.users.get(msg.id)
-      if (!u || u.typing === msg.typing) return state
-      return { ...state, users: withEntry(state.users, msg.id, { ...u, typing: msg.typing }) }
+      if (!u || (u.typing === msg.typing && u.drawing === msg.drawing)) return state
+      return { ...state, users: withEntry(state.users, msg.id, { ...u, typing: msg.typing, drawing: msg.drawing }) }
     }
     case "CursorMoved": {
       const u = state.users.get(msg.id)

@@ -13,6 +13,8 @@ export const User = Schema.Struct({
   cursor: Schema.NullOr(Point),
   /** Typing in their box right now (their draft itself stays private). */
   typing: Schema.optionalWith(Schema.Boolean, { default: () => false }),
+  /** Drawing a sketch right now (drawing mode). */
+  drawing: Schema.optionalWith(Schema.Boolean, { default: () => false }),
 })
 export type User = typeof User.Type
 
@@ -74,6 +76,19 @@ export class RenameHandle extends Schema.TaggedClass<RenameHandle>()("RenameHand
   handle: Schema.String,
 }) {}
 
+/**
+ * Drawing mode: this person's strokes (board coordinates, simplified). The
+ * client says what's under them: the element the sketch sits inside, the
+ * sibling it goes before, and what each stroke starts / ends on (arrows).
+ * No strokes = the sketch is gone.
+ */
+export class SetSketch extends Schema.TaggedClass<SetSketch>()("SetSketch", {
+  strokes: Schema.Array(Schema.Array(Point).pipe(Schema.maxItems(160))).pipe(Schema.maxItems(40)),
+  inside: Schema.optional(Schema.String),
+  before: Schema.optional(Schema.String),
+  hits: Schema.optional(Schema.Array(Schema.Struct({ start: Schema.NullOr(Schema.String), end: Schema.NullOr(Schema.String) }))),
+}) {}
+
 /** Step back (-1) or forward (+1) through this person's draft versions before Enter. */
 export class StepDraft extends Schema.TaggedClass<StepDraft>()("StepDraft", {
   delta: Schema.Literal(-1, 1),
@@ -85,7 +100,7 @@ export class SetNote extends Schema.TaggedClass<SetNote>()("SetNote", {
   note: Schema.String.pipe(Schema.maxLength(2000)),
 }) {}
 
-export const ClientMessage = Schema.Union(Join, MoveCursor, SetInput, Commit, Discard, MoveNode, DeleteNode, SetImage, DropImage, RenameHandle, SetNote, StepDraft)
+export const ClientMessage = Schema.Union(Join, MoveCursor, SetInput, Commit, Discard, MoveNode, DeleteNode, SetImage, DropImage, RenameHandle, SetNote, StepDraft, SetSketch)
 export type ClientMessage = typeof ClientMessage.Type
 
 // ---------------------------------------------------------------------------
@@ -115,6 +130,8 @@ export class UserLeft extends Schema.TaggedClass<UserLeft>()("UserLeft", { id: S
 export class UserTyping extends Schema.TaggedClass<UserTyping>()("UserTyping", {
   id: Schema.String,
   typing: Schema.Boolean,
+  /** …with a pen rather than the keyboard. */
+  drawing: Schema.optionalWith(Schema.Boolean, { default: () => false }),
 }) {}
 
 export class CursorMoved extends Schema.TaggedClass<CursorMoved>()("CursorMoved", {

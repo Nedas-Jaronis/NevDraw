@@ -60,6 +60,8 @@ export const roomSocket = Effect.gen(function* () {
         return session.setNote(msg.id, msg.note)
       case "StepDraft":
         return session.stepDraft(msg.delta)
+      case "SetSketch":
+        return session.setSketch(msg.strokes, msg.inside ?? null, msg.before ?? null, msg.hits ?? [])
     }
   }
 

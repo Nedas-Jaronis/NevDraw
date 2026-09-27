@@ -9,6 +9,7 @@ const SECTIONS = [
   { id: "input", title: "Writing good input" },
   { id: "architecture", title: "Architecture diagrams" },
   { id: "changes", title: "Changing what's there" },
+  { id: "drawing", title: "Drawing" },
   { id: "together", title: "Working together" },
   { id: "export", title: "Export" },
   { id: "keys", title: "Keyboard shortcuts" },
@@ -239,6 +240,36 @@ export function DocsPage() {
               <li>Drop a picture on any element, or use Upload / Link on images and heroes.</li>
               <li>The note icon on an element opens a note for your team; click it again to minimize.</li>
             </ul>
+          </Section>
+
+          <Section id="drawing" title="Drawing">
+            <p>
+              Press <Key>D</Key> (or the pencil, bottom left) and sketch. Pause for a moment and your sketch becomes the real
+              component, as a draft only you can see. <Key>Enter</Key> places it, <Key>Esc</Key> throws it away, <Key>⌘Z</Key>{" "}
+              undoes a stroke, and ‹ › shows other readings.
+            </p>
+            <Table
+              head={["Draw", "Becomes"]}
+              rows={[
+                ["A box with a bar across the top", "Modal"],
+                ["A box with short lines inside (one per field)", "Form"],
+                ["A wide, short box", "Input"],
+                ["A small box, or a box with a scribble", "Button"],
+                ["A box with an X or a mountain peak", "Image"],
+                ["A box with a circle and lines", "Contact"],
+                ["A box with a small box and lines", "Card"],
+                ["Scribbled lines with no box", "Text"],
+                ["A circle", "Avatar"],
+                ["A cylinder", "Database"],
+                ["A plain box", "Service"],
+                ["A box with vertical stripes", "Queue"],
+                ["An arrow from one element to another", "An arrow between them"],
+              ]}
+            />
+            <Note>
+              Draw inside an element to put the new part in it, at the height you drew it. Keep drawing near the draft to add to
+              the same sketch; draw somewhere else to start a new one. Two fingers or Space move the board.
+            </Note>
           </Section>
 
           <Section id="together" title="Working together">

@@ -94,7 +94,13 @@ export const Draft = Schema.Struct({
   patches: Schema.optionalWith(Schema.Array(NodePatch), { default: () => [] }),
   /** Which version of this draft is showing (the typist steps through them before Enter). */
   history: Schema.optional(
-    Schema.Struct({ at: Schema.Number, total: Schema.Number, source: Schema.Literal("Instant", "Jev", "AI") }),
+    Schema.Struct({
+      at: Schema.Number,
+      total: Schema.Number,
+      source: Schema.Literal("Instant", "Jev", "AI"),
+      /** What this version is (a sketch's component: "Modal", "Form"…). */
+      label: Schema.optional(Schema.String),
+    }),
   ),
 })
 export type Draft = typeof Draft.Type

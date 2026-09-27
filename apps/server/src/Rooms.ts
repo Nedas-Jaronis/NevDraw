@@ -1,3 +1,4 @@
+import { analyzeSketch, describeSketch, DRAWABLE, type Drawable, guessSketch, type Sketch } from "./engine/sketch.ts"
 import {
   type BoardEdge,
   type BoardNode,
@@ -5,6 +6,7 @@ import {
   type Displacement,
   LayoutUpdated,
   type Draft,
+  type EdgeKind,
   DraftCleared,
   DraftUpdated,
   UserTyping,
@@ -102,6 +104,13 @@ export type Session = {
   readonly setNote: (id: string, note: string) => Effect.Effect<void>
   /** Step back / forward through this person's draft versions (Instant → Jev → AI …). */
   readonly stepDraft: (delta: -1 | 1) => Effect.Effect<void>
+  /** Drawing mode: this person's sketch (empty = gone). */
+  readonly setSketch: (
+    strokes: ReadonlyArray<ReadonlyArray<Point>>,
+    inside: string | null,
+    before: string | null,
+    hits: ReadonlyArray<{ start: string | null; end: string | null }>,
+  ) => Effect.Effect<void>
   readonly leave: Effect.Effect<void>
 }
 
@@ -275,7 +284,7 @@ export const RoomsLive = Layer.effect(
     const join = (roomId: string, profile: { name: string; color: string }, outbox: Queue.Queue<ServerMessage>) =>
       Effect.gen(function* () {
         const room = yield* openRoom(roomId)
-        const user: User = { id: crypto.randomUUID(), name: profile.name, color: profile.color, cursor: null, typing: false }
+        const user: User = { id: crypto.randomUUID(), name: profile.name, color: profile.color, cursor: null, typing: false, drawing: false }
         room.clients.set(user.id, { user, outbox })
 
         yield* Queue.offer(
@@ -295,12 +304,13 @@ export const RoomsLive = Layer.effect(
         const self = () => room.clients.get(user.id)?.user
 
         /** Tell everyone else when this person starts or stops typing (never what). */
-        const setTyping = (typing: boolean) =>
+        const setTyping = (typing: boolean, drawing = false) =>
           Effect.suspend(() => {
             const c = room.clients.get(user.id)
-            if (!c || c.user.typing === typing) return Effect.void
-            c.user = { ...c.user, typing }
-            return broadcast(room, new UserTyping({ id: user.id, typing }), user.id)
+            const pen = typing && drawing
+            if (!c || (c.user.typing === typing && c.user.drawing === pen)) return Effect.void
+            c.user = { ...c.user, typing, drawing: pen }
+            return broadcast(room, new UserTyping({ id: user.id, typing, drawing: pen }), user.id)
           })
 
         // Per-typist state: piece hysteresis, the in-flight Jev fetch, and the latest input.
@@ -317,6 +327,18 @@ export const RoomsLive = Layer.effect(
         let versions: Array<{ graph: EntryGraph; source: "Instant" | "Jev" | "AI"; sig: string }> = []
         /** The version being viewed; null = the latest. */
         let viewing: number | null = null
+        /**
+         * Drawing mode: the sketch being recognized. Its versions are components: the geometry's
+         * pick first, then Jev's; › asks for the next-best.
+         */
+        let sketch: {
+          analysis: Sketch
+          description: string
+          insideId: string | null
+          beforeId: string | null
+          picks: Array<{ type: Drawable; source: "Instant" | "Jev" }>
+          at: number | null
+        } | null = null
         const targetHandle = () => (targetId ? (room.nodes.get(targetId)?.handle ?? null) : null)
         // The LLM cleanup pass: its pending fiber, and its result for one exact text.
         let llmFiber: Fiber.RuntimeFiber<void> | null = null
@@ -382,6 +404,7 @@ export const RoomsLive = Layer.effect(
         /** Drop this person's draft; `typing` = they're still typing (a fragment that means nothing yet). */
         const clearDraftWith = (typing: boolean) => Effect.suspend(() => {
           const stopTyping = typing ? Effect.void : setTyping(false)
+          sketch = null
           versions = []
           viewing = null
           pieceMemory = new Map()
@@ -470,6 +493,67 @@ export const RoomsLive = Layer.effect(
               Effect.as(r.missing),
             )
           })
+
+        /** A drawn arrow's kind, from what it points at. */
+        const arrowKind = (to: BoardNode | undefined): EdgeKind =>
+          to?.type === "page" ? "navigates-to" : to?.type === "database" || to?.type === "storage" ? "writes" : to?.type === "queue" ? "publishes" : "calls"
+
+        /** The drawn component as a graph: where it was drawn, with a form's drawn fields. */
+        const sketchGraph = (type: Drawable): EntryGraph => {
+          const s = sketch!
+          const entry = DRAWABLE[type]!
+          const inNode = s.insideId ? room.nodes.get(s.insideId) : undefined
+          const media = ["image", "avatar"].includes(entry.type)
+          const holds = inNode && (REGISTRY[inNode.type].container || media)
+          const parent = holds ? (inNode!.handle ?? null) : inNode?.parent ? (room.nodes.get(inNode.parent)?.handle ?? null) : null
+          const before = s.beforeId ? room.nodes.get(s.beforeId)?.handle : undefined
+          const after = !holds && inNode?.handle && parent ? inNode.handle : undefined
+          const fields = ["Name", "Email", "Password", "Phone", "Message", "Company", "Address", "Website"]
+          const items = entry.type === "form" && s.analysis.fieldCount >= 2 ? fields.slice(0, Math.min(8, s.analysis.fieldCount)) : undefined
+          return {
+            nodes: [
+              {
+                key: "s0",
+                type: entry.type,
+                label: type.charAt(0).toUpperCase() + type.slice(1),
+                parent,
+                props: items ? { items } : {},
+                ...(before ? { before } : after ? { after } : {}),
+              },
+            ],
+            edges: [],
+            suggestions: [],
+            patches: [],
+          }
+        }
+
+        /** Show a sketch's graph as this person's private draft (where it was drawn). */
+        const showSketch = (graph: EntryGraph, history?: Draft["history"]) =>
+          Effect.suspend(() => {
+            const me = self()
+            if (!me || !sketch) return Effect.void
+            const b = sketch.analysis.box
+            const anchor = { x: b.x + b.w / 2, y: b.y + b.h / 2 }
+            const prev = room.memory.get(user.id)
+            const placed = materialize({ graph, prev, anchor, user: me, newId: () => crypto.randomUUID(), board: boardView(room) })
+            // A top-level sketch lands exactly where it was drawn.
+            const memory = { ...placed, nodes: placed.nodes.map((n) => (n.parent === null ? { ...n, x: Math.round(b.x), y: Math.round(b.y) } : n)) }
+            room.memory.set(user.id, memory)
+            const text = history?.label ? `(drawing: ${history.label})` : "(drawing)"
+            const draft: Draft = { userId: user.id, text, nodes: memory.nodes, edges: memory.edges, patches: memory.patches, ...(history ? { history } : {}) }
+            room.drafts.set(user.id, draft)
+            lastDraftSignature = ""
+            return sendTo(room, user.id, new DraftUpdated({ draft })).pipe(Effect.zipRight(relayout(room)))
+          })
+
+        /** Show the sketch version being viewed (the latest by default). */
+        const showPick = Effect.suspend(() => {
+          if (!sketch || !sketch.picks.length) return Effect.void
+          const at = sketch.at ?? sketch.picks.length - 1
+          const pick = sketch.picks[at]!
+          const label = pick.type.charAt(0).toUpperCase() + pick.type.slice(1)
+          return showSketch(sketchGraph(pick.type), { at: at + 1, total: sketch.picks.length, source: pick.source, label })
+        })
 
         const session: Session = {
           selfId: user.id,
@@ -689,8 +773,96 @@ export const RoomsLive = Layer.effect(
               yield* broadcast(room, new NodesUpdated({ nodes: [next] }))
             }),
 
+          setSketch: (strokes, inside, before, hits) =>
+            Effect.gen(function* () {
+              yield* cancelInflight
+              if (!self()) return
+              latest = null
+              const analysis = strokes.length ? analyzeSketch(strokes) : null
+              if (!analysis) return yield* clearDraft
+              yield* setTyping(true, true)
+              const insideId = inside && room.nodes.has(inside) ? inside : null
+              const inNode = insideId ? room.nodes.get(insideId) : undefined
+              const description = describeSketch(analysis, inNode ? `${inNode.label} (${inNode.type})` : null)
+              sketch = { analysis, description, insideId, beforeId: before && room.nodes.has(before) ? before : null, picks: [], at: null }
+
+              // An arrow from one element to another: a real arrow between them.
+              if (analysis.arrow) {
+                const a = analysis.arrow
+                const near = (p: Point, q: Point) => Math.hypot(p.x - q.x, p.y - q.y) < 24
+                let from: string | null = null
+                let to: string | null = null
+                strokes.forEach((st, i) => {
+                  const h = hits[i]
+                  if (!h || !st.length) return
+                  const [s0, s1] = [st[0]!, st.at(-1)!]
+                  if (near(s0, a.from)) from ??= h.start
+                  if (near(s1, a.from)) from ??= h.end
+                  if (near(s1, a.to) || near(s1, a.from) === false) to ??= h.end
+                  if (near(s0, a.to)) to ??= h.start
+                })
+                const fromNode = from ? room.nodes.get(from) : undefined
+                const toNode = to ? room.nodes.get(to) : undefined
+                if (!fromNode?.handle || !toNode?.handle || fromNode.id === toNode.id) return yield* clearDraftWith(true)
+                return yield* showSketch({
+                  nodes: [],
+                  edges: [{ from: fromNode.handle, to: toNode.handle, kind: arrowKind(toNode) }],
+                  suggestions: [],
+                  patches: [],
+                })
+              }
+
+              // The geometry's pick shows right away; Jev's pick replaces it when it answers.
+              const geometry = guessSketch(analysis)
+              sketch.picks.push({ type: geometry[0]!, source: "Instant" })
+              yield* showPick
+              const mine = sketch
+              inflight = yield* Effect.fork(
+                classifier.sketch(description, []).pipe(
+                  Effect.flatMap((j) =>
+                    Effect.suspend(() => {
+                      if (sketch !== mine || !j || !(j.component in DRAWABLE)) return Effect.void
+                      const type = j.component as Drawable
+                      if (mine.picks.at(-1)?.type === type) {
+                        mine.picks[mine.picks.length - 1] = { type, source: "Jev" }
+                      } else mine.picks.push({ type, source: "Jev" })
+                      return mine.at === null ? showPick : Effect.void
+                    }),
+                  ),
+                  Effect.asVoid,
+                ),
+              )
+            }),
+
           stepDraft: (delta) =>
             Effect.suspend(() => {
+              // Drawing: step through the component picks; past the last, ask for the next-best.
+              if (sketch && sketch.picks.length) {
+                const s = sketch
+                const at = s.at ?? s.picks.length - 1
+                if (delta === -1) {
+                  s.at = Math.max(0, at - 1)
+                  return showPick
+                }
+                if (at < s.picks.length - 1) {
+                  s.at = at + 1
+                  return showPick
+                }
+                const tried = s.picks.map((p) => p.type)
+                const nextGeometry = guessSketch(s.analysis).find((t) => !tried.includes(t))
+                return classifier.sketch(s.description, tried).pipe(
+                  Effect.flatMap((j) =>
+                    Effect.suspend(() => {
+                      if (sketch !== s) return Effect.void
+                      const type = j && j.component in DRAWABLE && !tried.includes(j.component) ? (j.component as Drawable) : nextGeometry
+                      if (!type) return Effect.void
+                      s.picks.push({ type, source: j && j.component === type ? "Jev" : "Instant" })
+                      s.at = s.picks.length - 1
+                      return showPick
+                    }),
+                  ),
+                )
+              }
               if (versions.length < 2 || !latest) return Effect.void
               const auto = versions.findLastIndex((v) => v.source !== "AI")
               const from = viewing ?? (auto >= 0 ? auto : versions.length - 1)

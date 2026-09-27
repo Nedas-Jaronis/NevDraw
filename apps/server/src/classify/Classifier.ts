@@ -39,6 +39,8 @@ export class Classifier extends Context.Tag("Classifier")<
     readonly peek: (state: PieceState) => PieceAnswers | undefined
     /** Ask Jev for every uncached state in parallel. Failures are logged and skipped. */
     readonly fetch: (states: readonly PieceState[]) => Effect.Effect<{ fetched: number; failed: number }>
+    /** Drawing mode: Jev's pick for a sketch description (null when Jev is off or fails). */
+    readonly sketch: (sketch: string, exclude: readonly string[]) => Effect.Effect<{ component: string; confidence: number } | null>
   }
 >() {}
 
@@ -52,6 +54,8 @@ export const ClassifierLive = Layer.effect(
     return {
       enabled: jev.enabled,
       peek: (state) => cache.get(cacheKey(state)),
+      sketch: (sketch, exclude) =>
+        jev.enabled && jev.sketch ? jev.sketch({ sketch, exclude }).pipe(Effect.catchAll(() => Effect.succeed(null))) : Effect.succeed(null),
       fetch: (states) => {
         if (!jev.enabled) return Effect.succeed({ fetched: 0, failed: 0 })
         const unique = new Map(states.map((s) => [cacheKey(s), s] as const))
