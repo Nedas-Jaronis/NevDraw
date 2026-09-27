@@ -143,3 +143,45 @@ describe("drawing mode over the protocol", () => {
     await a.waitFor(is("DraftCleared"))
   })
 })
+
+test("a curved, hand-drawn arrow (head as its own stroke) still connects the two elements", async () => {
+  const { a } = await room()
+  a.send(new SetInput({ text: "a checkout page. a payments service", anchor: { x: 0, y: 0 } }))
+  a.send(new Commit())
+  const made = (await a.waitFor(is("NodesCommitted"))).nodes
+  const [page, svc] = [made.find((n) => n.type === "page")!, made.find((n) => n.type === "service")!]
+  // A wobbly arc from the page to the service, then a separate "v" head.
+  const arc = Array.from({ length: 30 }, (_, i) => ({ x: 100 + i * 12, y: 200 - Math.sin((i / 29) * Math.PI) * 90 + (i % 3) * 2 }))
+  const head = [{ x: 440, y: 185 }, { x: 448, y: 200 }, { x: 432, y: 206 }]
+  a.send(new SetSketch({ strokes: [arc, head], hits: [{ start: page.id, end: svc.id }, { start: svc.id, end: svc.id }] }))
+  const d = await a.waitFor(is("DraftUpdated", (m) => m.draft.edges.length === 1))
+  expect(d.draft.edges[0]).toMatchObject({ from: page.id, to: svc.id, kind: "calls" })
+  expect(d.draft.nodes).toEqual([])
+})
+
+describe("hand-drawn realities", () => {
+  test("a box drawn in two strokes (two L's) is still a box", () => {
+    const l1 = [...line(0, 0, 200, 0), ...line(200, 0, 200, 140)]
+    const l2 = [...line(200, 140, 0, 140), ...line(0, 140, 0, 4)]
+    expect(guess(l1, l2)).toBe("service")
+  })
+  test("a box that doesn't quite close is still a box", () => {
+    const open = [...line(0, 0, 220, 0), ...line(220, 0, 220, 150), ...line(220, 150, 0, 150), ...line(0, 150, 0, 40)]
+    expect(guess(open)).toBe("service")
+  })
+  test("an X drawn in one stroke inside a box is an image, and the geometry's reading stands", async () => {
+    const { strongGuess } = await import("../src/engine/sketch.ts")
+    const x = [...line(10, 10, 190, 140), ...line(190, 140, 190, 10), ...line(190, 10, 10, 140)]
+    const s = analyzeSketch([rect(0, 0, 200, 150), x])!
+    expect(guessSketch(s)[0]).toBe("image")
+    expect(strongGuess(s)).toBe(true)
+    expect(describeSketch(s, null)).toContain("an X across it")
+  })
+})
+
+test("real mouse input: a box drawn as two L's with an X in one stroke is an image", () => {
+  const l1 = [...line(250, 200, 470, 200), ...line(470, 200, 470, 360)]
+  const l2 = [...line(470, 360, 250, 360), ...line(250, 360, 250, 205)]
+  const x = [...line(265, 215, 455, 345), ...line(455, 345, 455, 215), ...line(455, 215, 265, 345)]
+  expect(guess(l1, l2, x)).toBe("image")
+})

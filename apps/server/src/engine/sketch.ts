@@ -77,7 +77,8 @@ export function shapeOf(pts: readonly Pt[]): Shape | null {
   const len = pathLength(pts)
   const first = pts[0]!
   const last = pts.at(-1)!
-  const closed = dist(first, last) < Math.max(18, 0.22 * diag) && len > 1.6 * diag
+  // Hands rarely close a shape exactly: a gap up to ~30% of its size still counts.
+  const closed = dist(first, last) < Math.max(24, 0.3 * diag) && len > 1.5 * diag
   if (closed) {
     // Rectangle or ellipse: which outline do the points hug?
     const c = center(box)
@@ -145,8 +146,55 @@ export type Sketch = {
   fieldCount: number
 }
 
+/**
+ * A box drawn in several strokes (two L's, four sides, a U and a lid): open
+ * strokes whose points hug the edges of their combined bounds, on all four
+ * sides, become one box.
+ */
+function composeBox(shapes: Shape[], strokes: readonly (readonly Pt[])[]): Shape[] {
+  if (shapes.some((s) => s.kind === "rect" || s.kind === "ellipse")) return shapes
+  const open = shapes.map((s, i) => ({ s, pts: strokes[i] ?? [] })).filter(({ s }) => s.kind !== "arrow")
+  if (open.length < 2) return shapes
+  const all = boxOf(open.flatMap(({ pts }) => pts))
+  if (all.w < 30 || all.h < 20) return shapes
+  const near = (v: number, target: number, size: number) => Math.abs(v - target) < Math.max(10, 0.12 * size)
+  const onBorder = (p: Pt, b: Box) => near(p.y, b.y, b.h) || near(p.y, b.y + b.h, b.h) || near(p.x, b.x, b.w) || near(p.x, b.x + b.w, b.w)
+  // The strokes that run along the outside (each spans a good part of a side, mostly on the border);
+  // a big stroke through the middle (an X) stays inside.
+  const big = open.filter(({ s }) => s.box.w > 0.5 * all.w || s.box.h > 0.5 * all.h)
+  const outline = boxOf(big.flatMap(({ pts }) => pts))
+  const edge = big.filter(({ pts }) => pts.length && pts.filter((p) => onBorder(p, outline)).length >= 0.7 * pts.length)
+  const pts = edge.flatMap(({ pts }) => pts)
+  if (edge.length < 2 || !pts.length) return shapes
+  const bounds = boxOf(pts)
+  // Each side has to be drawn along (spanning at least half of it), not just touched.
+  const span = (vals: number[]) => (vals.length ? Math.max(...vals) - Math.min(...vals) : 0)
+  const top = pts.filter((p) => near(p.y, bounds.y, bounds.h))
+  const bottom = pts.filter((p) => near(p.y, bounds.y + bounds.h, bounds.h))
+  const left = pts.filter((p) => near(p.x, bounds.x, bounds.w))
+  const right = pts.filter((p) => near(p.x, bounds.x + bounds.w, bounds.w))
+  // …and the upright sides by one stroke that actually runs up and down (a zigzag line doesn't).
+  const upright = (x: number) =>
+    edge.some(({ pts: sp }) => {
+      const along = sp.filter((p) => near(p.x, x, bounds.w))
+      return span(along.map((p) => p.y)) > 0.5 * bounds.h && boxOf(sp).h > 0.5 * bounds.h
+    })
+  const sides = [
+    span(top.map((p) => p.x)) > 0.5 * bounds.w,
+    span(bottom.map((p) => p.x)) > 0.5 * bounds.w,
+    span(left.map((p) => p.y)) > 0.5 * bounds.h && upright(bounds.x),
+    span(right.map((p) => p.y)) > 0.5 * bounds.h && upright(bounds.x + bounds.w),
+  ]
+  const onEdges = pts.filter((p) => near(p.y, bounds.y, bounds.h) || near(p.y, bounds.y + bounds.h, bounds.h) || near(p.x, bounds.x, bounds.w) || near(p.x, bounds.x + bounds.w, bounds.w)).length
+  if (!sides.every(Boolean) || onEdges < 0.8 * pts.length) return shapes
+  const used = new Set(edge.map(({ s }) => s))
+  return [{ kind: "rect", box: bounds }, ...shapes.filter((s) => !used.has(s))]
+}
+
 export function analyzeSketch(strokes: readonly (readonly Pt[])[]): Sketch | null {
-  const shapes = joinArrowHeads(strokes.map(shapeOf).filter((s): s is Shape => s !== null))
+  const raw = strokes.map(shapeOf)
+  const kept = raw.map((s, i) => ({ s, pts: strokes[i]! })).filter((x): x is { s: Shape; pts: readonly Pt[] } => x.s !== null)
+  const shapes = joinArrowHeads(composeBox(kept.map((x) => x.s), kept.map((x) => x.pts)))
   if (!shapes.length) return null
   const box = boxOf(shapes.flatMap((s) => [{ x: s.box.x, y: s.box.y }, { x: s.box.x + s.box.w, y: s.box.y + s.box.h }]))
   const closed = shapes.filter((s) => s.kind === "rect" || s.kind === "ellipse").sort((a, b) => b.box.w * b.box.h - a.box.w * a.box.h)
@@ -156,6 +204,19 @@ export function analyzeSketch(strokes: readonly (readonly Pt[])[]): Sketch | nul
   const fieldCount = inner.filter((s) => (s.kind === "line" && s.dir === "h") || (s.kind === "rect" && s.box.w > 2.5 * s.box.h)).length
   return { shapes, box, outer, inner, arrow, fieldCount }
 }
+
+/**
+ * Shapes the cheat sheet names unmistakably (an X or peak in a box, a
+ * cylinder, stripes, a lone circle): the geometry's reading stands, and Jev
+ * only offers alternatives.
+ */
+export function strongGuess(s: Sketch): boolean {
+  const first = guessSketch(s)[0]
+  return first === "image" || first === "database" || first === "queue" || (first === "avatar" && s.shapes.length === 1)
+}
+
+/** One stroke zigzagging across most of the box: an X drawn without lifting the pen. */
+const crossesBox = (x: Shape, o: Box) => x.kind === "scribble" && x.box.w > 0.6 * o.w && x.box.h > 0.6 * o.h
 
 /** The geometry's own reading, best first (the fallback, and ‹ › alternatives). */
 export function guessSketch(s: Sketch): Drawable[] {
@@ -176,7 +237,7 @@ export function guessSketch(s: Sketch): Drawable[] {
     (x) => ((x.kind === "line" && x.dir === "h") || (x.kind === "rect" && x.box.w > 2.5 * x.box.h) ? x.box.y - o.y < 0.18 * o.h && x.box.w > 0.8 * o.w : false),
   )
   if (circles && lines) return ["contact", "card", "form"]
-  if (diag >= 2 || count((x) => x.kind === "peak") >= 1) return ["image", "card", "service"]
+  if (diag >= 2 || count((x) => x.kind === "peak") >= 1 || inner.some((x) => crossesBox(x, o))) return ["image", "card", "service"]
   if (verticals >= 2) return ["queue", "table" as Drawable, "service"].filter((t) => t in DRAWABLE) as Drawable[]
   if (topBar && inner.length >= 1) return ["modal", "form", "card"]
   if (s.fieldCount >= 2) return ["form", "modal", "card"]
@@ -214,7 +275,11 @@ export function describeSketch(s: Sketch, container: string | null): string {
         // A line hugging the top across nearly the whole width reads as a title bar.
         const bar =
           ((x.kind === "line" && x.dir === "h") || (x.kind === "rect" && x.box.w > 2.5 * x.box.h)) && x.box.y - o.y < 0.18 * o.h && x.box.w > 0.8 * o.w
-        const k = bar ? "a bar across the whole top (like a title bar)" : shape(x)
+        const k = bar
+          ? "a bar across the whole top (like a title bar)"
+          : (x.kind === "line" && x.dir === "diag") || crossesBox(x, o)
+            ? "an X across it (the usual image placeholder)"
+            : shape(x)
         groups.set(k, [...(groups.get(k) ?? []), where(x, s.outer.box)])
       }
       const inside = [...groups].map(([k, at]) => (at.length > 1 ? `${at.length} ${k.replace(/^an? /, "")}s stacked (${[...new Set(at)].join(", ")})` : `${k} at the ${at[0]}`))

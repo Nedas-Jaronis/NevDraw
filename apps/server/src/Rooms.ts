@@ -1,4 +1,4 @@
-import { analyzeSketch, describeSketch, DRAWABLE, type Drawable, guessSketch, type Sketch } from "./engine/sketch.ts"
+import { analyzeSketch, describeSketch, DRAWABLE, type Drawable, guessSketch, type Sketch, strongGuess } from "./engine/sketch.ts"
 import {
   type BoardEdge,
   type BoardNode,
@@ -786,6 +786,25 @@ export const RoomsLive = Layer.effect(
               const description = describeSketch(analysis, inNode ? `${inNode.label} (${inNode.type})` : null)
               sketch = { analysis, description, insideId, beforeId: before && room.nodes.has(before) ? before : null, picks: [], at: null }
 
+              // Any open stroke that starts on one element and ends on another is an arrow between them
+              // (curved, wobbly, with or without a head): what it connects matters, not its shape.
+              const bridge = strokes.findIndex((st, i) => {
+                const h = hits[i]
+                if (!h?.start || !h.end || h.start === h.end || st.length < 2) return false
+                const [s0, s1] = [st[0]!, st.at(-1)!]
+                return Math.hypot(s0.x - s1.x, s0.y - s1.y) > 40
+              })
+              if (bridge >= 0 && !analysis.outer) {
+                const fromNode = room.nodes.get(hits[bridge]!.start!)
+                const toNode = room.nodes.get(hits[bridge]!.end!)
+                if (fromNode?.handle && toNode?.handle)
+                  return yield* showSketch({
+                    nodes: [],
+                    edges: [{ from: fromNode.handle, to: toNode.handle, kind: arrowKind(toNode) }],
+                    suggestions: [],
+                    patches: [],
+                  })
+              }
               // An arrow from one element to another: a real arrow between them.
               if (analysis.arrow) {
                 const a = analysis.arrow
@@ -823,6 +842,12 @@ export const RoomsLive = Layer.effect(
                     Effect.suspend(() => {
                       if (sketch !== mine || !j || !(j.component in DRAWABLE)) return Effect.void
                       const type = j.component as Drawable
+                      // An unmistakable shape keeps the geometry's reading; Jev's differing pick is an alternative (›).
+                      if (strongGuess(mine.analysis) && mine.picks[0]?.type !== type) {
+                        mine.picks.push({ type, source: "Jev" })
+                        mine.at ??= 0
+                        return showPick
+                      }
                       if (mine.picks.at(-1)?.type === type) {
                         mine.picks[mine.picks.length - 1] = { type, source: "Jev" }
                       } else mine.picks.push({ type, source: "Jev" })
