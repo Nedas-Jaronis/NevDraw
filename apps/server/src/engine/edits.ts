@@ -41,6 +41,7 @@ export function editOf(text: string, known: ReadonlySet<string>): EntryPatch | n
   const label = renamed?.[1] ? titleCase(renamed[1].replace(/^(?:a|an|the)\s+/i, "")) : undefined
 
   let type: NodeType | undefined
+  let renamedTo: string | undefined
   let of: NodeType | undefined
   let items: string[] | undefined
   const into = label
@@ -67,6 +68,8 @@ export function editOf(text: string, known: ReadonlySet<string>): EntryPatch | n
       const t = classifyKeywords(phrase).type
       if (t !== "box") type = t
     }
+    // Parts drawn by their name ("left sidebar", "footer") take that name.
+    if (!label && /\b(side\s*bar|side\s*nav|footer|header)\b/i.test(phrase)) renamedTo = titleCase(phrase.replace(/^(?:a|an|the)\s+/i, ""))
     if (type && (type === "list" || type === "table") && n > 1) {
       const noun = of ? of.replace(/-/g, " ").replace(/^./, (c) => c.toUpperCase()) : "Item"
       items = Array.from({ length: Math.min(12, n) }, (_, i) => `${noun} ${i + 1}`)
@@ -77,7 +80,7 @@ export function editOf(text: string, known: ReadonlySet<string>): EntryPatch | n
   if (!label && !type && !color) return null
   return {
     target,
-    ...(label ? { label } : {}),
+    ...(label ? { label } : renamedTo ? { label: renamedTo } : {}),
     ...(type ? { type } : {}),
     ...(of ? { of } : {}),
     ...(items ? { items } : {}),
