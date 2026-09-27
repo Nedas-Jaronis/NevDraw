@@ -95,6 +95,8 @@ export type Session = {
   readonly renameHandle: (id: string, handle: string) => Effect.Effect<void>
   /** Annotate an element ("" removes the note). */
   readonly setNote: (id: string, note: string) => Effect.Effect<void>
+  /** Step back / forward through this person's draft versions (Instant → Jev → AI …). */
+  readonly stepDraft: (delta: -1 | 1) => Effect.Effect<void>
   readonly leave: Effect.Effect<void>
 }
 
@@ -301,6 +303,14 @@ export const RoomsLive = Layer.effect(
         let latest: { text: string; anchor: Point } | null = null
         /** The element this person clicked (its id): what they type edits it. */
         let targetId: string | null = null
+        /**
+         * Every distinct reading of this draft so far (instant, Jev's, the AI's; typing adds
+         * more), so the typist can step back and forth before Enter. Consecutive readings
+         * from the same pass collapse into one (typing doesn't make a version per key).
+         */
+        let versions: Array<{ graph: EntryGraph; source: "Instant" | "Jev" | "AI"; sig: string }> = []
+        /** The version being viewed; null = the latest. */
+        let viewing: number | null = null
         const targetHandle = () => (targetId ? (room.nodes.get(targetId)?.handle ?? null) : null)
         // The LLM cleanup pass: its pending fiber, and its result for one exact text.
         let llmFiber: Fiber.RuntimeFiber<void> | null = null
@@ -365,6 +375,8 @@ export const RoomsLive = Layer.effect(
 
         const clearDraft = Effect.suspend(() => {
           const stopTyping = setTyping(false)
+          versions = []
+          viewing = null
           pieceMemory = new Map()
           latest = null
           llmResult = null
@@ -400,15 +412,31 @@ export const RoomsLive = Layer.effect(
               handleInfo(room),
               text,
             )
-            if (graph.nodes.length === 0 && graph.edges.length === 0 && graph.patches.length === 0) return Effect.as(clearDraft, [])
+            const source = llmResult?.text === text && !explicitCommand ? "AI" : r.debug.some((d) => d.source === "jev") ? "Jev" : "Instant"
+            if (graph.nodes.length || graph.edges.length || graph.patches.length) {
+              const sig = JSON.stringify([graph.nodes.map((n) => [n.key, n.type, n.label, n.parent, n.props]), graph.edges, graph.patches])
+              const last = versions.at(-1)
+              if (last?.sig !== sig) {
+                if (last && last.source === source && viewing === null) versions[versions.length - 1] = { graph, source, sig }
+                else versions.push({ graph, source, sig })
+                if (versions.length > 30) {
+                  versions.shift()
+                  if (viewing !== null) viewing = Math.max(0, viewing - 1)
+                }
+              }
+            }
+            const viewed = viewing !== null ? versions[viewing] : undefined
+            const shown = viewed?.graph ?? graph
+            if (shown.nodes.length === 0 && shown.edges.length === 0 && shown.patches.length === 0) return Effect.as(clearDraft, [])
             const prev = room.memory.get(user.id)
             const memory = placeNewRoots(
               room,
               user.id,
               prev,
-              materialize({ graph, prev, anchor, user: me, newId: () => crypto.randomUUID(), board: boardView(room) }),
+              materialize({ graph: shown, prev, anchor, user: me, newId: () => crypto.randomUUID(), board: boardView(room) }),
             )
-            const draft: Draft = { userId: user.id, text, nodes: memory.nodes, edges: memory.edges, patches: memory.patches }
+            const history = { at: (viewing ?? versions.length - 1) + 1, total: versions.length, source: viewed?.source ?? source }
+            const draft: Draft = { userId: user.id, text, nodes: memory.nodes, edges: memory.edges, patches: memory.patches, history }
             room.memory.set(user.id, memory)
             const known = new Set(room.handles.keys())
             const named = [...room.nodes.values()].flatMap((n) => (n.handle ? [{ handle: n.handle, label: n.label }] : []))
@@ -417,7 +445,7 @@ export const RoomsLive = Layer.effect(
             )
             // Only send what changed: identical drafts (a Jev answer that agrees, a no-op keystroke) aren't re-sent.
             // What people see: the text (typing indicator) and the elements. Which classifier answered doesn't count.
-            const signature = JSON.stringify([text, draft.nodes, draft.edges, draft.patches])
+            const signature = JSON.stringify([text, draft.nodes, draft.edges, draft.patches, history])
             const unchanged = signature === lastDraftSignature
             lastDraftSignature = signature
             room.drafts.set(user.id, draft)
@@ -453,6 +481,8 @@ export const RoomsLive = Layer.effect(
               if (!self()) return
               if (!text.trim()) return yield* clearDraft
               yield* setTyping(true)
+              // Typing goes back to the latest reading.
+              if (latest?.text !== text) viewing = null
               latest = { text, anchor }
               if (llmResult?.text !== text) llmResult = null
               const missing = yield* render(text, anchor)
@@ -496,7 +526,8 @@ export const RoomsLive = Layer.effect(
             const typed = latest
             const pending = typed && refining?.text === typed.text ? refining.result : null
             if (!pending) yield* cancelInflight
-            if (typed && refiner.enabled && llmResult?.text !== typed.text && !explicitCommand) {
+            // Stepped back to an earlier version: commit exactly what's showing, don't wait for the AI.
+            if (typed && refiner.enabled && llmResult?.text !== typed.text && !explicitCommand && viewing === null) {
               const graph = yield* (pending ? Deferred.await(pending) : refine(typed.text)).pipe(
                 Effect.timeout(commitWait),
                 Effect.catchAll(() => Effect.succeed(null)),
@@ -508,6 +539,8 @@ export const RoomsLive = Layer.effect(
               }
             }
             yield* cancelInflight
+            versions = []
+            viewing = null
             pieceMemory = new Map()
             latest = null
             llmResult = null
@@ -649,6 +682,14 @@ export const RoomsLive = Layer.effect(
               room.nodes.set(id, next)
               yield* store.upsert(roomId, [next])
               yield* broadcast(room, new NodesUpdated({ nodes: [next] }))
+            }),
+
+          stepDraft: (delta) =>
+            Effect.suspend(() => {
+              if (versions.length < 2 || !latest) return Effect.void
+              const at = Math.min(versions.length - 1, Math.max(0, (viewing ?? versions.length - 1) + delta))
+              viewing = at === versions.length - 1 ? null : at
+              return Effect.asVoid(render(latest.text, latest.anchor))
             }),
 
           setNote: (id, note) =>

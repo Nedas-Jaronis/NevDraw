@@ -25,6 +25,9 @@ export function InputBox(props: {
   /** The clicked element and its ancestors (outermost first); empty when nothing is targeted. */
   target: ReadonlyArray<{ id: string; label: string }>
   onTarget: (id: string | null) => void
+  /** Which version of this person's draft is showing (step back and forth before Enter). */
+  history?: { at: number; total: number; source: string }
+  onStep: (delta: -1 | 1) => void
 }) {
   const [text, setText] = useState("")
   const [caret, setCaret] = useState(0)
@@ -199,6 +202,12 @@ export function InputBox(props: {
                 accept(chips[0]!)
                 return
               }
+              // ⌥← / ⌥→ step through the draft's versions.
+              if (e.altKey && (e.key === "ArrowLeft" || e.key === "ArrowRight") && props.history && props.history.total > 1) {
+                e.preventDefault()
+                props.onStep(e.key === "ArrowLeft" ? -1 : 1)
+                return
+              }
               if (e.key === "Enter" && text.trim()) {
                 e.preventDefault()
                 props.onCommit()
@@ -213,6 +222,36 @@ export function InputBox(props: {
             }}
           />
           <div className="flex min-h-7 items-center gap-3 border-t border-[var(--panel-border)] px-4 py-1.5 text-[11px] text-[var(--muted)]">
+            {props.history && props.history.total > 1 && text.trim() && (
+              <div className="order-last ml-auto flex items-center gap-1" aria-label="Draft versions">
+                <button
+                  type="button"
+                  aria-label="Previous version (⌥←)"
+                  title="Previous version (⌥←)"
+                  disabled={props.history.at <= 1}
+                  onPointerDown={(e) => e.preventDefault()}
+                  onClick={() => props.onStep(-1)}
+                  className="flex h-5 w-5 items-center justify-center rounded-md hover:bg-[var(--ink)]/5 hover:text-[var(--ink)] disabled:opacity-30"
+                >
+                  ‹
+                </button>
+                <span className="tabular-nums text-[var(--ink)]">
+                  {props.history.at}/{props.history.total}
+                </span>
+                <span>· {props.history.source}</span>
+                <button
+                  type="button"
+                  aria-label="Next version (⌥→)"
+                  title="Next version (⌥→)"
+                  disabled={props.history.at >= props.history.total}
+                  onPointerDown={(e) => e.preventDefault()}
+                  onClick={() => props.onStep(1)}
+                  className="flex h-5 w-5 items-center justify-center rounded-md hover:bg-[var(--ink)]/5 hover:text-[var(--ink)] disabled:opacity-30"
+                >
+                  ›
+                </button>
+              </div>
+            )}
             {refs.length > 0 ? (
               refs.map((h) => (
                 <span

@@ -74,13 +74,18 @@ export class RenameHandle extends Schema.TaggedClass<RenameHandle>()("RenameHand
   handle: Schema.String,
 }) {}
 
+/** Step back (-1) or forward (+1) through this person's draft versions before Enter. */
+export class StepDraft extends Schema.TaggedClass<StepDraft>()("StepDraft", {
+  delta: Schema.Literal(-1, 1),
+}) {}
+
 /** Annotate an element ("" removes the note). */
 export class SetNote extends Schema.TaggedClass<SetNote>()("SetNote", {
   id: Schema.String,
   note: Schema.String.pipe(Schema.maxLength(2000)),
 }) {}
 
-export const ClientMessage = Schema.Union(Join, MoveCursor, SetInput, Commit, Discard, MoveNode, DeleteNode, SetImage, DropImage, RenameHandle, SetNote)
+export const ClientMessage = Schema.Union(Join, MoveCursor, SetInput, Commit, Discard, MoveNode, DeleteNode, SetImage, DropImage, RenameHandle, SetNote, StepDraft)
 export type ClientMessage = typeof ClientMessage.Type
 
 // ---------------------------------------------------------------------------

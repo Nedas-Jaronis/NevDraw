@@ -1,4 +1,4 @@
-import { Commit, Join, SetInput } from "@rtw/shared"
+import { Commit, Join, SetInput, StepDraft } from "@rtw/shared"
 import { afterEach, describe, expect, test } from "bun:test"
 import { Effect, Layer } from "effect"
 import { Classifier, ClassifierLive } from "../src/classify/Classifier.ts"
@@ -188,4 +188,20 @@ test("when Jev fails, drafts still work from keywords and commit normally", asyn
   a.send(new Commit())
   const committed = await a.waitFor(is("NodesCommitted"))
   expect(committed.nodes[0]!.type).toBe("cache")
+})
+
+test("step back to an earlier version of the draft (Instant ← Jev) and commit that one", async () => {
+  const jev = stubJev({ "big brand moment": { type: "hero" } }, { delayMs: 60 })
+  const s = await boot(jev.layer)
+  const a = await join(s.url, "Ada")
+  a.send(new SetInput({ text: "big brand moment", anchor }))
+  const refined = await a.waitFor(is("DraftUpdated", (m) => m.draft.nodes[0]?.type === "hero"))
+  expect(refined.draft.history).toEqual({ at: 2, total: 2, source: "Jev" })
+  a.send(new StepDraft({ delta: -1 }))
+  const back = await a.waitFor(is("DraftUpdated", (m) => m.draft.history?.at === 1 && m.draft.history.total === 2))
+  expect(back.draft.nodes[0]!.type).toBe("box")
+  expect(back.draft.history).toEqual({ at: 1, total: 2, source: "Instant" })
+  a.send(new Commit())
+  const committed = await a.waitFor(is("NodesCommitted"))
+  expect(committed.nodes[0]!.type).toBe("box")
 })
