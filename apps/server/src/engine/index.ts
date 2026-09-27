@@ -48,7 +48,7 @@ export function pieceStates(pieces: readonly Piece[], handles: readonly string[]
  * same element (same key).
  */
 export function keepComputed(llmRaw: EntryGraph, instant: EntryGraph): EntryGraph {
-  const llm = completeFromInstant(llmRaw, instant)
+  const llm = systemFlat(completeFromInstant(llmRaw, instant))
   const computed = new Map(instant.nodes.map((n) => [n.key, n.props]))
   const placed = new Map(instant.nodes.map((n) => [n.key, n]))
   // Code-read changes (named colors, explicit renames/moves) win for the same element.
@@ -73,6 +73,31 @@ export function keepComputed(llmRaw: EntryGraph, instant: EntryGraph): EntryGrap
         },
       }
     }),
+  }
+}
+
+/**
+ * Services, databases, queues… are never nested (the same rule the instant
+ * reading follows). A box the AI made only to hold them ("Server stack") is
+ * dropped, and its arrows reach every member instead.
+ */
+export function systemFlat(g: EntryGraph): EntryGraph {
+  const system = (t: EntryGraph["nodes"][number]["type"]) => REGISTRY[t].lane === "architecture"
+  const members = new Map<string, string[]>()
+  for (const n of g.nodes) if (n.parent && system(n.type)) members.set(n.parent, [...(members.get(n.parent) ?? []), n.key])
+  if (!members.size) return g
+  const holders = new Set(
+    [...members.keys()].filter((k) => {
+      const box = g.nodes.find((n) => n.key === k)
+      return box && !system(box.type) && g.nodes.every((n) => n.parent !== k || system(n.type))
+    }),
+  )
+  const expand = (k: string) => (holders.has(k) ? members.get(k)! : [k])
+  const edges = g.edges.flatMap((e) => expand(e.from).flatMap((from) => expand(e.to).map((to) => ({ ...e, from, to }))))
+  return {
+    ...g,
+    nodes: g.nodes.filter((n) => !holders.has(n.key)).map((n) => (n.parent && system(n.type) ? { ...n, parent: null } : n)),
+    edges: edges.filter((e, i) => e.from !== e.to && edges.findIndex((f) => f.from === e.from && f.to === e.to && f.kind === e.kind) === i),
   }
 }
 

@@ -340,3 +340,17 @@ test("disconnecting a group cuts the arrows from what's inside it ('disconnect @
   const removed = await c.waitFor(is("NodesRemoved"))
   expect(removed.edgeIds).toEqual(first.edges.map((e) => e.id))
 })
+
+test("'make all the Independent Server red' recolors every element with that name", () => {
+  const h = new Map(
+    ["1", "2", "3"].map((i) => [`@independent-server-${i}`, { container: false, type: "service" as never, label: `Independent server ${i}`, parent: null }] as const),
+  )
+  const all = new Map([...h, ["@load-balancer", { container: false, type: "service" as never, label: "Load balancer", parent: null }]])
+  expect(bulkEditOf("make all the Independent Server red", all, [])).toEqual([
+    { target: "@independent-server-1", color: "#e03131" },
+    { target: "@independent-server-2", color: "#e03131" },
+    { target: "@independent-server-3", color: "#e03131" },
+  ])
+  // Kinds still work too.
+  expect(bulkEditOf("make all servers blue", all, [])?.length).toBe(4)
+})

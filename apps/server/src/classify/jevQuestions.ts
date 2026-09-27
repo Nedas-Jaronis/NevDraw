@@ -26,6 +26,10 @@ export const pieceQuestions = {
     "`piece` belongs inside `container` (it is part of it), rather than being a separate element next to it. Answer no when `container` is null",
   ),
 
+  isGroup: noul(
+    "`piece` describes several separate copies of the same element as one group, such as a stack, cluster, pool, farm or fleet of servers, rather than one single element",
+  ),
+
   layout: choice("How does `piece` ask for its contents or items to be arranged", {
     stack: "Stacked vertically, one under another",
     row: "Side by side in a row or columns",

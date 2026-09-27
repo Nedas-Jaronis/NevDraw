@@ -805,6 +805,10 @@ export const RoomsLive = Layer.effect(
                     patches: [],
                   })
               }
+              // A line started on an element that doesn't reach another: an arrow that missed, not text.
+              const startedOnElement = strokes.some((st, i) => hits[i]?.start && st.length > 1)
+              if (!analysis.outer && startedOnElement && analysis.shapes.every((x) => x.kind === "line" || x.kind === "arrow" || x.kind === "scribble"))
+                if (analysis.shapes.length <= 2 && !strokes.some((_, i) => hits[i]?.end && hits[i]?.end !== hits[i]?.start)) return yield* clearDraftWith(true)
               // An arrow from one element to another: a real arrow between them.
               if (analysis.arrow) {
                 const a = analysis.arrow

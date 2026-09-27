@@ -187,11 +187,27 @@ export function bulkEditOf(text: string, handles: HandleInfo, recent: readonly s
     .toLowerCase()
     .split(/[^a-z-]+/)
     .filter((w) => w && !GENERIC.test(w) && !explicitColor(w))
+  // "all the Independent Server": the elements on the board with that name (Independent server 1–5).
+  const phrase = words.join(" ").replace(/s$/, "")
+  const norm = (l: string) => l.toLowerCase().replace(/[^a-z\s]+/g, " ").replace(/\s+/g, " ").trim().replace(/s$/, "")
+  const named = phrase
+    ? [...handles.keys()].filter((h) => {
+        const l = norm(handles.get(h)?.label ?? "")
+        return l === phrase || l.startsWith(`${phrase} `) || l.endsWith(` ${phrase}`)
+      })
+    : []
   const types = new Set<NodeType>()
   for (const w of words) {
     const t = classifyKeywords(w.replace(/s$/, "")).type
-    if (t === "box") return null // an unknown word: not a bulk color change
+    if (t === "box") {
+      if (named.length) break
+      return null // an unknown word: not a bulk color change
+    }
     types.add(t)
+  }
+  if (named.length && (types.size === 0 || words.some((w) => classifyKeywords(w.replace(/s$/, "")).type === "box"))) {
+    const scoped = scope ? named.filter(inside) : named
+    return scoped.length ? scoped.map((target) => ({ target, color })) : null
   }
 
   const targets = scope ? [...handles.keys()].filter(inside) : them ? recent.filter((h) => handles.has(h)) : [...handles.keys()]

@@ -31,12 +31,22 @@ function lighten(pts: readonly Point[], zoom: number): Point[] {
 }
 
 /** The committed element under a screen point (innermost; drafts and ink don't count). */
-export function nodeAtPoint(x: number, y: number, nodes: ReadonlyMap<string, BoardNode>): string | null {
+export function nodeAtPoint(x: number, y: number, nodes: ReadonlyMap<string, BoardNode>, snap = 0): string | null {
   for (const el of document.elementsFromPoint(x, y)) {
     const id = el.closest("[data-node-id]")?.getAttribute("data-node-id")
     if (id && nodes.has(id)) return id
   }
-  return null
+  if (!snap) return null
+  // Just beside an element (arrows rarely land exactly on small cards): the nearest one within `snap` px.
+  let best: { id: string; d: number } | null = null
+  for (const el of document.querySelectorAll("[data-root-id]")) {
+    const id = el.getAttribute("data-root-id")
+    if (!id || !nodes.has(id)) continue
+    const r = el.getBoundingClientRect()
+    const d = Math.hypot(Math.max(r.left - x, 0, x - r.right), Math.max(r.top - y, 0, y - r.bottom))
+    if (d <= snap && (!best || d < best.d)) best = { id, d }
+  }
+  return best?.id ?? null
 }
 
 /**
@@ -147,7 +157,8 @@ export function useSketch(opts: {
       paintLive(null)
       if (!c || c.pts.length < 2) return
       const stroke = lighten(c.pts, latest.current.opts.zoom)
-      hits.current = [...hits.current, { start: c.start, end: nodeAt(screen.x, screen.y) }]
+      // The end snaps to an element just beside it, so a stroke aimed at one connects.
+      hits.current = [...hits.current, { start: c.start, end: nodeAtPoint(screen.x, screen.y, latest.current.opts.nodes, 48) }]
       const all = [...latest.current.strokes, stroke]
       setStrokes(all)
       schedule(all)

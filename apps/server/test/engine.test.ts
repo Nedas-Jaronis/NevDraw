@@ -161,3 +161,99 @@ describe("materialize (key diff)", () => {
     expect(b.nodes.map((x) => x.label)).toEqual(["Page", "Navbar"])
   })
 })
+
+test("when Jev says a piece is a group, code reads how many and of what (no phrasing rules)", async () => {
+  const { interpret } = await import("../src/engine/index.ts")
+  const { keywordAnswers } = await import("../src/engine/answers.ts")
+  // Jev's verdict, stubbed: the piece is a group of copies.
+  const peek = (st: { piece: string }) => ({ ...keywordAnswers({ index: 0, text: st.piece, connector: "start" }), isGroup: 0.95, source: "jev" as const })
+  for (const [text, labels] of [
+    ["a 5 server stack", ["Server 1", "Server 2", "Server 3", "Server 4", "Server 5"]],
+    ["a trio of api nodes", ["Api 1", "Api 2", "Api 3"]],
+    ["replicated redis x3", ["Redis 1", "Redis 2", "Redis 3"]],
+  ] as const) {
+    const g = interpret({ text, handles: new Map(), peek: peek as never, memory: new Map() }).graph
+    expect(g.nodes.map((n) => n.label)).toEqual([...labels])
+  }
+})
+
+test("a count survives what the text says about the copies ('4 independent servers that are all orange')", async () => {
+  const { interpret } = await import("../src/engine/index.ts")
+  const { keywordAnswers } = await import("../src/engine/answers.ts")
+  for (const isGroup of [0.95, 0.1]) {
+    const peek = (st: { piece: string }) => ({ ...keywordAnswers({ index: 0, text: st.piece, connector: "start" }), isGroup, source: "jev" as const })
+    const g = interpret({ text: "4 independent servers that are all orange", handles: new Map(), peek: peek as never, memory: new Map() }).graph
+    expect(g.nodes.map((n) => n.label)).toEqual(["Independent server 1", "Independent server 2", "Independent server 3", "Independent server 4"])
+    expect(new Set(g.nodes.map((n) => n.props.color))).toEqual(new Set(["#ff7a1a"]))
+  }
+})
+
+test("pointer words and 'the …' refer back instead of making elements ('in which they', typos too)", async () => {
+  const { interpret } = await import("../src/engine/index.ts")
+  const { keywordAnswers } = await import("../src/engine/answers.ts")
+  const peek = (st: { piece: string }) => ({
+    ...keywordAnswers({ index: 0, text: st.piece, connector: "start" }),
+    isGroup: /\d|two/.test(st.piece) ? 0.95 : 0.05,
+    source: "jev" as const,
+  })
+  const text = "create me a server stack of 5 servers, in which they connect to two load balancers. and then the load balacners connect to 3 independent databases."
+  const g = interpret({ text, handles: new Map(), peek: peek as never, memory: new Map() }).graph
+  expect(g.nodes.map((n) => n.label)).toEqual([
+    "Server 1", "Server 2", "Server 3", "Server 4", "Server 5",
+    "Load balancer 1", "Load balancer 2",
+    "Independent database 1", "Independent database 2", "Independent database 3",
+  ])
+  expect(g.edges.length).toBe(5 * 2 + 2 * 3)
+})
+
+test("the AI's system pieces are never nested: a box holding servers becomes a group its arrows reach", async () => {
+  const { systemFlat } = await import("../src/engine/index.ts")
+  const g = systemFlat({
+    nodes: [
+      { key: "stack", type: "section", label: "Server stack", parent: null, props: {} },
+      ...[1, 2].map((i) => ({ key: `s${i}`, type: "service" as const, label: `Server ${i}`, parent: "stack", props: {} })),
+      { key: "lb", type: "service", label: "Load balancer", parent: null, props: {} },
+    ],
+    edges: [{ from: "stack", to: "lb", kind: "calls" }],
+    suggestions: [],
+    patches: [],
+  })
+  expect(g.nodes.map((n) => [n.key, n.parent])).toEqual([["s1", null], ["s2", null], ["lb", null]])
+  expect(g.edges.map((e) => `${e.from}>${e.to}`)).toEqual(["s1>lb", "s2>lb"])
+})
+
+test("siblings after ',' / 'and' stay siblings even when Jev says each belongs in a container", async () => {
+  const { interpret } = await import("../src/engine/index.ts")
+  const { keywordAnswers } = await import("../src/engine/answers.ts")
+  // Jev's real answers: every part is a child of a container, and navbars/heroes can hold things.
+  const peek = (st: { piece: string }) => ({ ...keywordAnswers({ index: 0, text: st.piece, connector: "start" }), isContainer: 0.8, childOfContainer: 0.93, source: "jev" as const })
+  const g = interpret({ text: "a landing page with a navbar, a hero, three pricing cards and a footer", handles: new Map(), peek: peek as never, memory: new Map() }).graph
+  const parentOf = (label: string) => g.nodes.find((n) => n.label === g.nodes.find((m) => m.key === g.nodes.find((x) => x.label === label)?.parent)?.label)?.label
+  for (const part of ["Navbar", "Hero", "Pricing cards", "Footer"]) expect(parentOf(part)).toBe("Landing page")
+})
+
+test("typing a diagram out ends in the same tidy layout as pasting it (no overlaps from half-typed drafts)", async () => {
+  const { startServer, TestClient, is } = await import("./helpers.ts")
+  const { Join, SetInput } = await import("@rtw/shared")
+  const server = await startServer()
+  const c = await TestClient.connect(server.url, "typed")
+  c.send(new Join({ name: "Ada", color: "#e11d48" }))
+  await c.waitFor(is("Welcome"))
+  const full = "5 servers -> 2 load balancers -> 5 databases"
+  let last: { label: string; x: number; y: number }[] = []
+  for (let i = 3; i <= full.length; i += 2) {
+    c.send(new SetInput({ text: full.slice(0, i), anchor: { x: 0, y: 0 } }))
+    await Bun.sleep(15)
+  }
+  c.send(new SetInput({ text: full, anchor: { x: 0, y: 0 } }))
+  await Bun.sleep(300)
+  const d = c.received.filter((m) => m._tag === "DraftUpdated").at(-1) as unknown as { draft: { nodes: typeof last } }
+  last = d.draft.nodes
+  const spots = new Set(last.map((n) => `${n.x},${n.y}`))
+  expect(last.length).toBe(12)
+  expect(spots.size).toBe(12)
+  // Three columns: servers, load balancers, databases.
+  expect(new Set(last.map((n) => n.x)).size).toBe(3)
+  c.close()
+  await server.stop()
+})

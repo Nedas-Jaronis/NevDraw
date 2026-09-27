@@ -1,7 +1,7 @@
 import { ACCENTS, type EntryEdge, type EntryGraph, type EntryNode, type EntryPatch, type NodeType, REGISTRY } from "@rtw/shared"
 import { bulkEditOf, editOf } from "./edits.ts"
 import { collectionOf, explicitColor, isModifierOnly, sequenceItems, systemGroup, withoutValues } from "./modifiers.ts"
-import { labelFrom } from "../classify/keywords.ts"
+import { classifyKeywords, labelFrom } from "../classify/keywords.ts"
 import type { PieceAnswers } from "./answers.ts"
 import type { Piece } from "./split.ts"
 
@@ -37,6 +37,57 @@ export function countOf(text: string): number {
   const w = m[1]!.toLowerCase().replace(/\s+of$/, "")
   const n = NUMBER_WORDS[w] ?? Number.parseInt(w, 10)
   return Number.isFinite(n) ? Math.max(1, Math.min(MAX_REPEAT, n)) : 1
+}
+
+const NUMBER_WORDS_GROUP: Record<string, number> = { two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, pair: 2, trio: 3, couple: 2 }
+/**
+ * The values in a group Jev recognized: how many (the number written) and what
+ * (the word it counts, past filler like "node"/"instance"), as "5 servers".
+ */
+function groupCount(text: string): { n: number; noun: string } | null {
+  const words = text.toLowerCase().replace(/[^a-z0-9\s-]/g, " ").split(/[\s-]+/).filter(Boolean)
+  const filler = /^(of|the|a|an|node|nodes|instance|instances|replica|replicas|x|copies|copy|identical|replicated)$/
+  // "redis x3", "api 3x": the count after the thing it counts.
+  const times = words.findIndex((w) => /^x\d+$|^\d+x$/.test(w))
+  if (times > 0) {
+    const n = Number(words[times]!.replace(/x/g, ""))
+    const noun = [...words.slice(0, times)].reverse().find((w) => !filler.test(w))
+    return n > 1 && noun ? { n, noun } : null
+  }
+  const at = words.findIndex((w) => /^\d+$/.test(w) || w in NUMBER_WORDS_GROUP)
+  if (at < 0) return null
+  const n = /^\d+$/.test(words[at]!) ? Number(words[at]) : NUMBER_WORDS_GROUP[words[at]!]!
+  // "5 independent servers" → "independent server": every word it counts, past the filler.
+  // It ends at the plural word ("independent servers"), else at the last word that names a kind ("server stack").
+  const rest = words.slice(at + 1).filter((w) => !filler.test(w))
+  const plural = rest.findIndex((w) => /[a-z]{2,}s$/.test(w) && !/(ss|us|is)$/.test(w))
+  const kind = rest.findLastIndex((w) => classifyKeywords(w).type !== "box")
+  const end = plural >= 0 ? plural : kind >= 0 ? kind : rest.length - 1
+  const noun = rest.slice(0, end + 1).join(" ").replace(/(?<!s)s$/, "")
+  return n > 1 && noun ? { n, noun } : null
+}
+
+/** The thing a phrase names, without what it says about it: "4 servers that are all orange" → "4 servers". */
+const withoutDescription = (text: string) =>
+  text
+    .replace(/,?\s+(?:that|which|who)\s+(?:are|is|were|all|each)\b.*$/i, "")
+    .replace(/,?\s+(?:all|each|both)\s+(?:in\s+|colou?red\s+)?[a-z]+$/i, "")
+    .trim() || text
+
+/** A piece of only pointer words ("in which they", "them", "each of those") names nothing new. */
+const POINTER = /^(?:(?:in|of|to|with|for|on|at|from|where|which|that|who|whom|whose|they|them|it|its|those|these|this|each|all|both|then|so|and|every|one)\b[\s,]*)+$/i
+/** "the …", "those …", "these …", "both …": something already mentioned. */
+const DEFINITE = /^(?:the|those|these|both|all(?:\s+the)?|each\s+of\s+the)\s+/i
+
+function editDistance(a: string, b: string): number {
+  const d = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array<number>(b.length).fill(0)])
+  for (let j = 1; j <= b.length; j++) d[0]![j] = j
+  for (let i = 1; i <= a.length; i++)
+    for (let j = 1; j <= b.length; j++) {
+      d[i]![j] = Math.min(d[i - 1]![j]! + 1, d[i]![j - 1]! + 1, d[i - 1]![j - 1]! + (a[i - 1] === b[j - 1] ? 0 : 1))
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) d[i]![j] = Math.min(d[i]![j]!, d[i - 2]![j - 2]! + 1)
+    }
+  return d[a.length]![b.length]!
 }
 
 function pluralLabel(label: string) {
@@ -192,6 +243,16 @@ export function assemble(
   /** Top-level/edge nodes by label, so "api … api" is one element. */
   const byLabel = new Map<string, string>()
   let prev: { key: string; parent: string | null; container: boolean } | null = null
+  /** Groups this entry made, by their members' name ("load balancer"). */
+  const groupNames = new Map<string, string>()
+  /** "the load balancers" / "those servers" (typos too): a group or element this entry already made. */
+  const sameEntry = (text: string): string | null => {
+    if (!DEFINITE.test(text.trim())) return null
+    const name = cleanLabel(text.trim().replace(DEFINITE, ""), true).toLowerCase()
+    const known: [string, string][] = [...groupNames, ...byLabel]
+    const close = (a: string, b: string) => a === b || (Math.min(a.length, b.length) >= 6 && editDistance(a, b) <= 2)
+    return known.find(([l]) => close(l, name) || close(l, name.replace(/s$/, "")))?.[1] ?? null
+  }
 
   /** "5 servers" on a system diagram: the group's key stands for each member. */
   const groups = new Map<string, string[]>()
@@ -282,6 +343,16 @@ export function assemble(
     const edge = piece.connector === "edge" ? piece.edge : undefined
 
     // "@postgres", "the @postgres": a reference to a committed element, not a new one.
+    // "in which they", "them", "each of those": no thing named, only a pointer back to the one before.
+    const back = POINTER.test(piece.text) && prev ? prev.key : sameEntry(piece.text)
+    if (back) {
+      keyOfPiece.set(piece.index, back)
+      if (edge) addEdge(keyOfPiece.get(edge.from), back, edge.kind, edge.label)
+      const n = byKey.get(back)
+      prev = { key: back, parent: n?.parent ?? null, container: n ? REGISTRY[n.type].container : false }
+      return
+    }
+
     const ref = referenceOf(piece.text, handles)
     if (ref) {
       keyOfPiece.set(piece.index, ref)
@@ -305,7 +376,9 @@ export function assemble(
     let namedRest: string | null = null
     // Arrow targets are separate elements, never nested.
     if (!edge && piece.connector !== "start" && prev) {
-      const nest = piece.connector === "with" || a.childOfContainer >= YES
+      // Jev's childOfContainer says it belongs in *a* container, not which: after "," / "and" that's the
+      // previous element's own container (siblings), unless the previous element is the top-level one.
+      const nest = piece.connector === "with" || (a.childOfContainer >= YES && prev.parent === null)
       // Media right after an element sits inside it ("a hero with an image"), container or not.
       const holds = prev.container || (piece.connector === "with" && EMBEDDABLE.has(a.nodeType.value))
       parent = nest && holds ? prev.key : prev.parent
@@ -328,24 +401,29 @@ export function assemble(
     // Services, databases, queues… are system pieces, never parts of a page.
     if (REGISTRY[a.nodeType.value].lane === "architecture") parent = null
 
-    // "a stack of 5 servers" → "5 servers".
-    const countText = systemGroup(piece.text) ?? piece.text
-    const count = countOf(countText)
+    // "a stack of 5 servers" → "5 servers". When Jev says the piece is a group of copies ("a 5 server
+    // stack", "a trio of api nodes"), code reads the number written and the thing it counts.
+    const named = withoutDescription(piece.text)
+    const grouped = (a.isGroup ?? 0) >= YES ? groupCount(named) : null
+    const countText = systemGroup(named) ?? named
+    const count = grouped ? Math.min(grouped.n, 12) : countOf(countText)
     const key = `p${piece.index}`
     const layout = a.layout.value !== "none" && a.layout.confidence >= YES ? a.layout.value : null
 
     if (count > 1 && REGISTRY[a.nodeType.value].lane === "architecture") {
       // System pieces repeat as separate, numbered elements ("Server 1 … Server 5"), never a box;
       // arrows to or from the group reach every member.
-      const label = cleanLabel(countText, true)
+      const label = grouped ? grouped.noun.replace(/^./, (c) => c.toUpperCase()) : cleanLabel(countText, true)
       const members: string[] = []
+      const color = explicitColor(piece.text)
       for (let r = 0; r < count; r++) {
-        const m: MutableNode = { key: `${key}.${r}`, type: a.nodeType.value, label: `${label} ${r + 1}`, parent: null, props: {} }
+        const m: MutableNode = { key: `${key}.${r}`, type: a.nodeType.value, label: `${label} ${r + 1}`, parent: null, props: color ? { color } : {} }
         nodes.push(m)
         byKey.set(m.key, m)
         members.push(m.key)
       }
       groups.set(key, members)
+      groupNames.set(label.toLowerCase(), key)
       keyOfPiece.set(piece.index, key)
       if (edge) addEdge(keyOfPiece.get(edge.from), key, edge.kind, edge.label)
       prev = { key, parent: null, container: false }
