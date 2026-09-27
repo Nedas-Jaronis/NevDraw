@@ -16,7 +16,7 @@ const SECTIONS = [
 ] as const
 
 /**
- * /docs: how to use Live Wireframes, and how to phrase input so the board
+ * /docs: how to use NevDraw, and how to phrase input so the board
  * reads it the way you mean it.
  */
 export function DocsPage() {
@@ -51,7 +51,7 @@ export function DocsPage() {
       <header className="sticky top-0 z-10 border-b border-[var(--hairline)] bg-[var(--board-bg)]/80 backdrop-blur-xl">
         <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-3">
           <a href="/" className="text-[15px] font-semibold tracking-tight">
-            Live Wireframes <span className="font-normal text-[var(--muted)]">Docs</span>
+            NevDraw <span className="font-normal text-[var(--muted)]">Docs</span>
           </a>
           <button
             type="button"
@@ -84,7 +84,7 @@ export function DocsPage() {
         </nav>
 
         <main className="min-w-0 max-w-2xl flex-1 py-10 text-[15px] leading-7 text-[var(--ink)]/85">
-          <h1 className="text-[32px] font-semibold leading-tight tracking-tight text-[var(--ink)]">Using Live Wireframes</h1>
+          <h1 className="text-[32px] font-semibold leading-tight tracking-tight text-[var(--ink)]">Using NevDraw</h1>
           <p className="mt-3 text-[17px] leading-7 text-[var(--muted)]">
             Describe what you're building in plain English. The board draws it as you type, for everyone in the room, and Enter
             makes it real.

@@ -30,7 +30,7 @@ function Home() {
   return (
     <main className="board-grid flex min-h-full items-center justify-center p-4">
       <div className="w-full max-w-md rounded-2xl border border-[var(--panel-border)] bg-[var(--panel)] p-6 shadow-sm">
-        <h1 className="text-2xl font-semibold">Live Wireframes</h1>
+        <h1 className="text-2xl font-semibold">NevDraw</h1>
         <p className="mt-2 text-sm text-[var(--muted)]">
           Type what you're building. Everyone on the board watches it turn into wireframes and architecture as you type.
         </p>

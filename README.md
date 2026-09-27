@@ -1,4 +1,4 @@
-# Live Wireframes
+# NevDraw
 
 Type what you're building, and everyone on the board watches it turn into wireframes and system architecture as you type. It brings [Shapeshift](https://github.com/anishfn/shapeshift) to a multiplayer, Excalidraw-style canvas. See [`thoughts/PRD.md`](thoughts/PRD.md).
 

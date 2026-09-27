@@ -143,7 +143,7 @@ export async function savePdf(canvas: HTMLCanvasElement, room: string, scale: nu
   const w = canvas.width / scale
   const h = canvas.height / scale
   const pdf = new jsPDF({ orientation: w >= h ? "landscape" : "portrait", unit: "px", format: [w, h], hotfixes: ["px_scaling"] })
-  pdf.setProperties({ title: room ? `Live Wireframes · ${room}` : "Live Wireframes" })
+  pdf.setProperties({ title: room ? `NevDraw · ${room}` : "NevDraw" })
   pdf.addImage(canvas.toDataURL("image/png"), "PNG", 0, 0, w, h, undefined, "FAST")
   pdf.save(fileName(room, "pdf"))
 }

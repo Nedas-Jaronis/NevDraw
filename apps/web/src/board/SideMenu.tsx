@@ -69,7 +69,7 @@ export function SideMenu(props: { roomId: string; status: string; onExport: () =
             >
               <div className="flex items-start justify-between px-5 pb-3 pt-5">
                 <div>
-                  <div className="text-[15px] font-semibold tracking-tight">Live Wireframes</div>
+                  <div className="text-[15px] font-semibold tracking-tight">NevDraw</div>
                   <div className="mt-0.5 text-xs text-[var(--muted)]">{props.roomId}</div>
                 </div>
                 <CloseButton onClick={() => setOpen(false)} />

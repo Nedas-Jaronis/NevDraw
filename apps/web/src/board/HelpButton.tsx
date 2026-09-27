@@ -35,14 +35,14 @@ export function HelpButton() {
             exit={{ x: "100%", transition: { duration: 0.18, ease: [0.4, 0, 1, 1] } }}
             transition={{ type: "spring", stiffness: 380, damping: 40 }}
             role="dialog"
-            aria-label="About Live Wireframes"
+            aria-label="About NevDraw"
             // The whole right side, like a macOS inspector: flush to the edge, full height.
             className="fixed inset-y-0 right-0 z-50 flex w-[min(400px,100vw)] flex-col border-l border-[var(--panel-border)] bg-[var(--panel)]/90 shadow-[-24px_0_64px_-32px_rgba(0,0,0,0.4)] backdrop-blur-2xl"
           >
             <header className="flex items-start justify-between gap-4 border-b border-[var(--hairline)] px-6 pb-4 pt-6">
               <div>
                 <h2 className="text-[19px] font-semibold tracking-tight">About</h2>
-                <p className="mt-1 text-[12.5px] text-[var(--muted)]">Why Live Wireframes exists.</p>
+                <p className="mt-1 text-[12.5px] text-[var(--muted)]">Why NevDraw exists.</p>
               </div>
               <CloseButton onClick={() => setOpen(false)} />
             </header>
