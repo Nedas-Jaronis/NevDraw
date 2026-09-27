@@ -196,7 +196,7 @@ export const RoomsLive = Layer.effect(
         const n = room.nodes.get(id)
         if (n) byHandle.set(h, n)
       }
-      return { byHandle, byId: room.nodes }
+      return { byHandle, byId: room.nodes, edges: room.edges }
     }
 
     /** What the LLM may reference: committed elements with their handles. */
@@ -435,7 +435,10 @@ export const RoomsLive = Layer.effect(
                 }
               }
             }
-            const viewed = viewing !== null ? versions[viewing] : undefined
+            // Jev's reading (or the instant one) is what shows; the AI's is an alternative the typist can step to.
+            const autoIndex = versions.findLastIndex((v) => v.source !== "AI")
+            const index = viewing ?? (autoIndex >= 0 ? autoIndex : versions.length - 1)
+            const viewed = versions[index]
             const shown = viewed?.graph ?? graph
             if (shown.nodes.length === 0 && shown.edges.length === 0 && shown.patches.length === 0) return Effect.as(clearDraftWith(true), [])
             const prev = room.memory.get(user.id)
@@ -445,7 +448,7 @@ export const RoomsLive = Layer.effect(
               prev,
               materialize({ graph: shown, prev, anchor, user: me, newId: () => crypto.randomUUID(), board: boardView(room) }),
             )
-            const history = { at: (viewing ?? versions.length - 1) + 1, total: versions.length, source: viewed?.source ?? source }
+            const history = { at: index + 1, total: versions.length, source: viewed?.source ?? source }
             const draft: Draft = { userId: user.id, text, nodes: memory.nodes, edges: memory.edges, patches: memory.patches, history }
             room.memory.set(user.id, memory)
             const known = new Set(room.handles.keys())
@@ -533,23 +536,7 @@ export const RoomsLive = Layer.effect(
             }),
 
           commit: Effect.gen(function* () {
-            // Enter commits the LLM's reading: the request already in flight for this text if
-            // there is one (never restarted), else a fresh one; the instant one only on timeout.
-            const typed = latest
-            const pending = typed && refining?.text === typed.text ? refining.result : null
-            if (!pending) yield* cancelInflight
-            // Stepped back to an earlier version: commit exactly what's showing, don't wait for the AI.
-            if (typed && refiner.enabled && llmResult?.text !== typed.text && !explicitCommand && viewing === null) {
-              const graph = yield* (pending ? Deferred.await(pending) : refine(typed.text)).pipe(
-                Effect.timeout(commitWait),
-                Effect.catchAll(() => Effect.succeed(null)),
-              )
-              yield* cancelInflight
-              if (graph) {
-                llmResult = { text: typed.text, graph }
-                yield* render(typed.text, typed.anchor)
-              }
-            }
+            // Enter commits exactly the version showing (Jev's by default, or the one stepped to).
             yield* cancelInflight
             versions = []
             viewing = null
@@ -704,8 +691,9 @@ export const RoomsLive = Layer.effect(
           stepDraft: (delta) =>
             Effect.suspend(() => {
               if (versions.length < 2 || !latest) return Effect.void
-              const at = Math.min(versions.length - 1, Math.max(0, (viewing ?? versions.length - 1) + delta))
-              viewing = at === versions.length - 1 ? null : at
+              const auto = versions.findLastIndex((v) => v.source !== "AI")
+              const from = viewing ?? (auto >= 0 ? auto : versions.length - 1)
+              viewing = Math.min(versions.length - 1, Math.max(0, from + delta))
               return Effect.asVoid(render(latest.text, latest.anchor))
             }),
 

@@ -142,3 +142,32 @@ test("a new page while something is targeted goes on the board, not inside it", 
     ["p1", "@footer"],
   ])
 })
+
+test("relinking two elements that are already linked adds nothing; after an unlink it restores one arrow", async () => {
+  const server = await startServer()
+  cleanups.push(() => server.stop())
+  const c = await TestClient.connect(server.url, "r")
+  cleanups.push(() => c.close())
+  c.send(new Join({ name: "Ada", color: "#e11d48" }))
+  await c.waitFor(is("Welcome"))
+  const anchor = { x: 0, y: 0 }
+  c.send(new SetInput({ text: "a contact form calls a server", anchor }))
+  c.send(new Commit())
+  const first = await c.waitFor(is("NodesCommitted"))
+  expect(first.edges).toHaveLength(1)
+  const [form, srv] = [first.nodes.find((n) => n.type === "form")!, first.nodes.find((n) => n.type === "service")!]
+  c.send(new SetInput({ text: `relink ${form.handle} and ${srv.handle}`, anchor }))
+  await Bun.sleep(200)
+  const d = c.received.filter(is("DraftUpdated", (m) => m.draft.text.startsWith("relink"))).at(-1)
+  expect(d?.draft.edges ?? []).toEqual([])
+  c.send(new SetInput({ text: "", anchor }))
+  c.send(new SetInput({ text: `unlink ${form.handle} from ${srv.handle}`, anchor }))
+  await c.waitFor(is("DraftUpdated", (m) => m.draft.text.startsWith("unlink")))
+  c.send(new Commit())
+  await c.waitFor(is("NodesRemoved"))
+  c.send(new SetInput({ text: `relink ${form.handle} and ${srv.handle}`, anchor }))
+  await c.waitFor(is("DraftUpdated", (m) => m.draft.text.startsWith("relink") && m.draft.edges.length === 1))
+  c.send(new Commit())
+  const again = await c.waitFor(is("NodesCommitted", (m) => m.edges.length === 1 && m.nodes.length === 0))
+  expect(again.edges[0]).toMatchObject({ from: form.id, to: srv.id })
+})

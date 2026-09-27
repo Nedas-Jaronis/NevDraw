@@ -85,6 +85,35 @@ export function buildTree(state: RoomState): Tree {
   const edges = new Map<string, EdgeItem>()
   for (const d of state.drafts.values()) for (const edge of d.edges) edges.set(edge.id, { edge, draft: true })
   for (const edge of state.edges.values()) edges.set(edge.id, { edge, draft: false })
-  const visible = [...edges.values()].filter((e) => items.has(e.edge.from) && items.has(e.edge.to))
+  // Arrows a draft cuts ("unlink …", or ones attached to something being removed) are gone
+  // from the preview right away; everyone else still sees them until Enter.
+  const cut = cutEdges(state)
+  const visible = [...edges.values()].filter((e) => items.has(e.edge.from) && items.has(e.edge.to) && !cut.has(e.edge.id))
   return { roots, children, edges: visible }
+}
+
+/** Committed arrows the drafts are removing: unlinks (a group counts as everything inside it) and removed elements. */
+function cutEdges(state: RoomState): Set<string> {
+  const out = new Set<string>()
+  const patches = [...state.drafts.values()].flatMap((d) => d.patches)
+  if (!patches.some((p) => p.unlink || p.remove)) return out
+  const withInside = (id: string) => {
+    const ids = new Set([id])
+    for (const cur of ids) for (const n of state.nodes.values()) if (n.parent === cur) ids.add(n.id)
+    return ids
+  }
+  for (const p of patches) {
+    if (p.remove) {
+      const gone = withInside(p.id)
+      for (const e of state.edges.values()) if (gone.has(e.from) || gone.has(e.to)) out.add(e.id)
+    }
+    if (p.unlink) {
+      const mine = withInside(p.id)
+      const theirs = p.unlink === "*" ? null : withInside(p.unlink)
+      const hits = (id: string) => theirs === null || theirs.has(id)
+      for (const e of state.edges.values())
+        if ((mine.has(e.from) && hits(e.to)) || (mine.has(e.to) && hits(e.from))) out.add(e.id)
+    }
+  }
+  return out
 }

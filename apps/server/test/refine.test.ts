@@ -2,7 +2,7 @@ process.env.LLM_DEBOUNCE_MS = "60"
 process.env.LLM_COMMIT_WAIT_MS = "400"
 
 import type { EntryGraph } from "@rtw/shared"
-import { Commit, Join, SetInput } from "@rtw/shared"
+import { Commit, Join, SetInput, StepDraft } from "@rtw/shared"
 import { afterEach, describe, expect, test } from "bun:test"
 import { Effect, Layer } from "effect"
 import { fromLlm, type LlmGraph, SYSTEM, userPrompt } from "../src/refine/prompt.ts"
@@ -175,27 +175,35 @@ async function setup(refiner: Layer.Layer<Refiner>) {
 const anchor = { x: 0, y: 0 }
 const TEXT = "checkout calls stripe, then it emails the user via a queue"
 
-test("after a pause the LLM refines the draft, keeping reused keys' elements", async () => {
+test("after a pause the AI's reading is added as a version you can step to (Jev's stays showing)", async () => {
   const r = stubRefiner(() => fromLlm(llmGraph))
   const { join } = await setup(r.layer)
   const a = await join("Ada")
   const b = await join("Bo")
   a.send(new SetInput({ text: TEXT, anchor }))
   const instant = await a.waitFor(is("DraftUpdated"))
+  // The AI's version arrives as version 2 of 2, but version 1 keeps showing.
+  const offered = await a.waitFor(is("DraftUpdated", (m) => m.draft.history?.total === 2))
+  expect(offered.draft.history).toMatchObject({ at: 1, total: 2 })
+  expect(offered.draft.edges.some((e) => e.kind === "publishes")).toBe(false)
+  a.send(new StepDraft({ delta: 1 }))
   const refined = await a.waitFor(is("DraftUpdated", (m) => m.draft.edges.some((e) => e.kind === "publishes")))
+  expect(refined.draft.history?.source).toBe("AI")
   expect(refined.draft.nodes.map((n) => n.label)).toEqual(["Checkout", "Stripe", "Email queue"])
   expect(refined.draft.nodes[0]!.id).toBe(instant.draft.nodes[0]!.id) // p0 reused → same element morphs
 })
 
-test("Enter commits the LLM version when it arrives within the wait", async () => {
+test("Enter commits the version showing right away; it never waits for the AI", async () => {
   process.env.LLM_DEBOUNCE_MS = "60"
   const r = stubRefiner(() => fromLlm(llmGraph), 150)
   const { join } = await setup(r.layer)
   const a = await join("Ada")
   a.send(new SetInput({ text: TEXT, anchor }))
+  const started = Date.now()
   a.send(new Commit()) // before the debounce fires
   const c = await a.waitFor(is("NodesCommitted"), 3000)
-  expect(c.nodes.map((n) => n.label)).toEqual(["Checkout", "Stripe", "Email queue"])
+  expect(Date.now() - started).toBeLessThan(500)
+  expect(c.nodes.map((n) => n.label)).not.toContain("Email queue")
 })
 
 test("Enter never waits longer than the commit wait; the instant version is committed", async () => {
@@ -233,6 +241,8 @@ test("handles the LLM invents are dropped; the rest of its graph still shows", a
   const { join } = await setup(r.layer)
   const a = await join("Ada")
   a.send(new SetInput({ text: "api writes to ghost db", anchor }))
+  await a.waitFor(is("DraftUpdated", (m) => m.draft.history?.total === 2))
+  a.send(new StepDraft({ delta: 1 }))
   const d = await a.waitFor(is("DraftUpdated", (m) => m.draft.nodes.length === 1 && m.draft.nodes[0]!.label === "Api"))
   expect(d.draft.edges).toEqual([])
 })

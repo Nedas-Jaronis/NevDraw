@@ -35,6 +35,8 @@ const edgeKey = (e: { from: string; to: string; kind: string }) => `${e.from}>${
 export type BoardView = {
   readonly byHandle: ReadonlyMap<string, BoardNode>
   readonly byId: ReadonlyMap<string, BoardNode>
+  /** Committed arrows: a draft never adds one that's already there ("relink" twice = one arrow). */
+  readonly edges?: ReadonlyMap<string, BoardEdge>
 }
 
 export const emptyBoard: BoardView = { byHandle: new Map(), byId: new Map() }
@@ -227,6 +229,11 @@ export function materialize(input: {
     const from = keyToId.get(e.from)
     const to = keyToId.get(e.to)
     if (!from || !to || !lookup(e.from) || !lookup(e.to)) continue
+    // Already on the board: the same arrow, or, for a plain "connect / relink", any arrow that way.
+    const exists = [...(board.edges?.values() ?? [])].some(
+      (c) => c.from === from && c.to === to && (c.kind === e.kind || e.label === "connects"),
+    )
+    if (exists) continue
     edges.push({
       id: keyToId.get(edgeKey(e))!,
       from,

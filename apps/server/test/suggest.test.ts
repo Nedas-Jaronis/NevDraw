@@ -1,4 +1,4 @@
-import { Commit, Join, SetInput } from "@rtw/shared"
+import { Commit, Join, SetInput, StepDraft } from "@rtw/shared"
 import { afterEach, describe, expect, test } from "bun:test"
 import { Effect, Layer } from "effect"
 import { split } from "../src/engine/split.ts"
@@ -99,6 +99,8 @@ test("LLM suggestions for unknown handles are never shown", async () => {
   const { join } = await setup(refiner)
   const a = await join("Ada")
   a.send(new SetInput({ text: "api uses the db", anchor }))
+  await a.waitFor(is("DraftUpdated", (m) => m.draft.history?.total === 2))
+  a.send(new StepDraft({ delta: 1 }))
   await a.waitFor(is("DraftUpdated", (m) => m.draft.nodes.length === 1))
   await Bun.sleep(50)
   expect(a.received.some((m) => m._tag === "SuggestionsUpdated" && m.suggestions.length > 0)).toBe(false)
