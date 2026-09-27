@@ -4,7 +4,7 @@ import type { PieceState } from "../classify/Jev.ts"
 import { keywordAnswers, type PieceAnswers } from "./answers.ts"
 import { detachOf, noteOf } from "./edits.ts"
 import { itemEditOf } from "./items.ts"
-import { columnsOf, placeInTarget, readTargeted, removeByName, retypeByName, unlinkByName } from "./target.ts"
+import { columnLayoutOf, columnsOf, moveByName, resolveOnBoard, placeInTarget, readTargeted, removeByName, retypeByName, unlinkByName } from "./target.ts"
 import { assemble, classificationText, type HandleInfo } from "./assemble.ts"
 import { type Piece, split } from "./split.ts"
 import { type PieceMemory, stabilize } from "./stabilize.ts"
@@ -204,14 +204,14 @@ export function withoutGuesses(graph: EntryGraph, pieces: readonly Piece[], answ
 
 type LocalMove = { what: string; where: "before" | "after" | "top" | "bottom"; other?: string }
 const MOVE_CLAUSE =
-  /(?:[,;.]\s*|\s+)(?:and\s+)?(?:then\s+)?(?:put|move|place|have)\s+(?:the\s+)?(.+?)\s+(before|after|above|below|under|beneath|at the top|at the bottom|first|last)(?:\s+(?:the\s+)?(.+?))?(?=$|[,;.]|\s+and\s+)/gi
+  /(?:[,;.]\s*|\s+)(?:and\s+)?(?:then\s+)?(?:(?:put|move|place|have|do|make|keep|set|position|stick|show)\s+)?(?:the\s+)?([^,;.]+?)\s+(?:goes\s+|should\s+(?:go|be|come)\s+|comes?\s+|is\s+|sits?\s+)?(before|after|above|below|under|beneath|at the (?:very )?(?:top|start|beginning|bottom|end)|to the (?:top|start|bottom|end)|first|last)(?:\s+(?:the\s+)?([^,;.]+?))?(?=$|[,;.]|\s+and\s+)/gi
 
 /** Pull "put X before Y" clauses out of a description (kept as text when they aren't about its own parts). */
 export function localMoves(text: string): { rest: string; moves: LocalMove[] } {
   const moves: LocalMove[] = []
   const rest = text.replace(MOVE_CLAUSE, (_, what: string, where: string, other?: string) => {
     const w = where.toLowerCase()
-    const kind = /top|first/.test(w) ? "top" : /bottom|last/.test(w) ? "bottom" : /before|above/.test(w) ? "before" : "after"
+    const kind = /top|first|start|beginning/.test(w) ? "top" : /bottom|last|end/.test(w) ? "bottom" : /before|above/.test(w) ? "before" : "after"
     moves.push({ what, where: kind, ...(other && kind !== "top" && kind !== "bottom" ? { other } : {}) })
     return ""
   })
@@ -280,14 +280,16 @@ export function interpret(input: {
     detachOf(said, input.handles) ??
     unlinkByName(said, input.handles, target) ??
     // With a target, "remove the footer" means its own footer (read below); otherwise anywhere on the board.
-    (target ? null : removeByName(said, input.handles))
+    (target ? null : removeByName(said, input.handles)) ??
+    // "move @hero after the footer": existing elements, by tag or name (with a target, its parts are read below).
+    moveByName(said, input.handles, !!target)
   if (detach) return only(detach)
   // "remove server9" when there's no server9: a removal that finds nothing does nothing.
-  if (!target && /^(?:please\s+)?(?:remove|delete|erase|get rid of|trash|ditch)\b/i.test(said) && !/\b(?:add|create|make|with)\b/i.test(said))
+  if (!target && /^(?:please\s+)?(?:remove|delete|erase|get rid of|trash|ditch|move|shift|drag)\b/i.test(said) && !/\b(?:add|create|make|with)\b/i.test(said))
     return only([])
   // "turn the cta and footer into a 2 column layout": one row, both moved into it, nothing else made.
-  const cols = columnsOf(said, input.handles, target)
-  if (cols) return { ...only(cols.patches), graph: { nodes: [cols.row], edges: [], suggestions: [], patches: cols.patches } }
+  const cols = columnsOf(said, input.handles, target) ?? columnLayoutOf(said, input.handles, target)
+  if (cols) return { ...only(cols.patches), graph: { nodes: cols.nodes, edges: [], suggestions: [], patches: cols.patches } }
   // "make cta a left sidebar and footer a right sidebar": existing elements change kind in place.
   const retyped = retypeByName(said, input.handles, target)
   if (retyped) return only(retyped)
@@ -322,6 +324,14 @@ export function interpret(input: {
     source: answers[i]!.source,
   }))
   let graph = withoutGuesses(assemble(pieces, answers, input.handles, input.recent ?? []), pieces, answers)
+  // "make @hero …" on an existing element is an edit: if it wasn't fully understood, it still never
+  // spawns new elements from the sentence (the reported "Cta sidebars" / duplicate Hero).
+  if (!target) {
+    const lead = /^(?:please\s+)?(?:make|turn|change|convert|switch|transform)\s+((?:@[\w-]+)|(?:the\s+)?[\w-]+(?:\s+[\w-]+)?)\b/i.exec(said)
+    const obj = lead?.[1] ?? ""
+    const existing = lead && (input.handles.has(obj.toLowerCase()) || resolveOnBoard(obj, input.handles, ""))
+    if (existing) graph = { ...graph, nodes: [], edges: graph.edges.filter((e) => input.handles.has(e.from) && input.handles.has(e.to)) }
+  }
   // "…, and put the cta before the footer": order the parts this same sentence describes.
   if (ordering.moves.length) {
     const ordered = applyLocalMoves(graph, ordering.moves)

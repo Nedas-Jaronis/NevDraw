@@ -322,11 +322,81 @@ test("same-sentence ordering, and 'turn the cta and footer into a 2 column layou
   const footer = made.find((n) => n.label === "Footer")!
   c.send(new SetInput({ text: "turn the cta and footer into a 2 column layout, cta on the left and footer on the right", anchor, target: page.id }))
   const d = await c.waitFor(is("DraftUpdated", (m) => m.draft.text.startsWith("turn")))
-  expect(d.draft.nodes.map((n) => [n.label, n.props.layout])).toEqual([["Two columns", "row"]])
+  expect(d.draft.nodes.map((n) => n.label)).toEqual(["Two columns", "Left column", "Right column"])
   c.send(new Commit())
-  const row = (await c.waitFor(is("NodesCommitted", (m) => m.nodes.some((n) => n.label === "Two columns")))).nodes[0]!
+  const made2 = (await c.waitFor(is("NodesCommitted", (m) => m.nodes.some((n) => n.label === "Two columns")))).nodes
+  const row = made2.find((n) => n.label === "Two columns")!
+  const [leftCol, rightCol] = [made2.find((n) => n.label === "Left column")!, made2.find((n) => n.label === "Right column")!]
   expect(row.parent).toBe(page.id)
-  const moved = await c.waitFor(is("NodesUpdated", (m) => m.nodes.filter((n) => n.parent === row.id).length === 2))
-  const inRow = moved.nodes.filter((n) => n.parent === row.id).sort((a, b) => a.order - b.order)
-  expect(inRow.map((n) => n.id)).toEqual([cta.id, footer.id])
+  expect([leftCol.parent, rightCol.parent]).toEqual([row.id, row.id])
+  const moved = await c.waitFor(is("NodesUpdated", (m) => m.nodes.some((n) => n.id === cta.id) && m.nodes.some((n) => n.id === footer.id)))
+  expect(moved.nodes.find((n) => n.id === cta.id)!.parent).toBe(leftCol.id)
+  expect(moved.nodes.find((n) => n.id === footer.id)!.parent).toBe(rightCol.id)
+})
+
+test("move by tag or name, no selection: 'move @hero after the footer' reorders, never creates", async () => {
+  const { interpret } = await import("../src/engine/index.ts")
+  const run = (text: string) => interpret({ text, handles: H, peek: () => undefined, memory: new Map() }).graph
+  expect(run("move @hero after the footer")).toMatchObject({ nodes: [], patches: [{ target: "@hero", after: "@footer" }] })
+  expect(run("put the subtitle before @hero")).toMatchObject({ nodes: [], patches: [{ target: "@subtitle", before: "@hero" }] })
+  expect(run("move the footer to the end")).toMatchObject({ nodes: [], patches: [{ target: "@footer", after: "$bottom" }] })
+  // Names nothing that's there: nothing moves, nothing is made.
+  expect(run("move @hero after the pricing table")).toMatchObject({ nodes: [], patches: [] })
+})
+
+test("ordering phrases in the same sentence: 'do the footer at the end', 'footer goes last'", async () => {
+  const { interpret } = await import("../src/engine/index.ts")
+  const P = new Map([["@blank-page", { container: true, type: "page" as never, label: "Blank page", parent: null }]])
+  for (const text of ["add a header, cta, footer, and hero. do the footer at the end", "add a header, cta, footer and hero, the footer goes last"]) {
+    const g = interpret({ text, handles: P, peek: () => undefined, memory: new Map(), target: "@blank-page" }).graph
+    expect(g.nodes.map((n) => n.label)).toEqual(["Header", "Cta", "Hero", "Footer"])
+  }
+})
+
+test("'make @hero and @cta sidebars, hero is a leftsidebar and cta is a right sidebar'", async () => {
+  const { interpret } = await import("../src/engine/index.ts")
+  const P = new Map<string, Info>([
+    ["@blank-page", { container: true, type: "page" as never, label: "Blank page", parent: null }],
+    ["@hero", { container: false, type: "hero" as never, label: "Hero", parent: "@blank-page" }],
+    ["@cta", { container: false, type: "button" as never, label: "Cta", parent: "@blank-page" }],
+  ])
+  const g = interpret({ text: "make @hero and @cta sidebars, hero is a leftsidebar and cta is a right sidebar", handles: P, peek: () => undefined, memory: new Map() }).graph
+  expect(g.nodes).toEqual([])
+  expect(g.patches).toEqual([
+    { target: "@hero", label: "Left Sidebar", type: "section" },
+    { target: "@cta", label: "Right Sidebar", type: "section" },
+  ])
+})
+
+describe("column layouts with named slots", () => {
+  const C = new Map<string, Info>([
+    ["@blank-page", { container: true, type: "page" as never, label: "Blank page", parent: null }],
+    ["@hero", { container: false, type: "hero" as never, label: "Hero", parent: "@blank-page" }],
+    ["@cta-button", { container: false, type: "button" as never, label: "Cta button", parent: "@blank-page" }],
+    ["@two-columns", { container: true, type: "section" as never, label: "Two columns", parent: "@blank-page" }],
+    ["@left-column", { container: true, type: "section" as never, label: "Left column", parent: "@two-columns" }],
+  ])
+  const run = async (text: string, target: string | null = null) => {
+    const { interpret } = await import("../src/engine/index.ts")
+    return interpret({ text, handles: C, peek: () => undefined, memory: new Map(), target }).graph
+  }
+  test("'a 2 column layout' makes a row with a Left and a Right column", async () => {
+    const g = await run("a 2 column layout", "@blank-page")
+    expect(g.nodes.map((n) => [n.label, n.parent])).toEqual([
+      ["Two columns", "@blank-page"],
+      ["Left column", "columns"],
+      ["Right column", "columns"],
+    ])
+  })
+  test("parts named for a side go in that column: existing ones move, new ones are made there", async () => {
+    const g = await run("add a 2 column layout with the cta on the left and a pricing table on the right", "@blank-page")
+    expect(g.patches).toEqual([{ target: "@cta-button", parent: "columns.0" }])
+    expect(g.nodes.at(-1)).toMatchObject({ label: "Pricing table", parent: "columns.1" })
+  })
+  test("'put the hero in the left column' moves it into that slot", async () => {
+    expect((await run("put the hero in the left column")).patches).toEqual([{ target: "@hero", parent: "@left-column" }])
+  })
+  test("a 'make …' edit on an existing element never spawns new elements", async () => {
+    expect((await run("make @hero something weird and unknown")).nodes).toEqual([])
+  })
 })
