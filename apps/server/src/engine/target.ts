@@ -98,8 +98,11 @@ export function resolveOnBoard(phrase: string, handles: HandleInfo, exclude: str
   const label = (h: string) => words(handles.get(h)?.label ?? "")
   const kind = (h: string) => (handles.get(h)?.type ?? "").replace("-", " ")
   const singular = want.replace(/s$/, "")
+  // "server 1" = "Server1" = @server1.
+  const squash = (s: string) => s.replace(/\s+/g, "")
   return (
     unique(all.filter((h) => label(h) === want)) ??
+    unique(all.filter((h) => squash(label(h)) === squash(want) || squash(h.slice(1).replace(/-/g, " ")) === squash(want))) ??
     unique(all.filter((h) => h.slice(1).replace(/-/g, " ") === want)) ??
     unique(all.filter((h) => label(h).replace(/s$/, "") === singular || kind(h) === singular || (singular === "server" && kind(h) === "service")))
   )
@@ -236,12 +239,14 @@ export function unlinkByName(text: string, handles: HandleInfo, target: string |
     .replace(new RegExp(`^(?:the\\s+)?${LINKISH}\\s+(?:between|from)\\s+`, "i"), "")
     .replace(new RegExp(`\\s+${LINKISH}$`, "i"), "")
     .trim()
-  const pair = /^(.+?)\s+(?:to|from|and|&|->|→|with)\s+(.+)$/i.exec(body)
-  const aPhrase = pair ? pair[1]! : body
-  const bPhrase = pair ? pair[2]! : null
+  // "disconnect from server 2" (with a target): the target is the first side.
+  const lead = /^(?:from|with|to)\s+(.+)$/i.exec(body)
+  const pair = lead ? null : /^(.+?)\s+(?:to|from|and|&|->|→|with)\s+(.+)$/i.exec(body)
+  const aPhrase = lead ? "it" : pair ? pair[1]! : body
+  const bPhrase = lead ? lead[1]! : pair ? pair[2]! : null
   const a = PRONOUN.test(aPhrase) && target ? target : (resolveOnBoard(aPhrase, handles, "") ?? (bPhrase ? null : target))
   if (!a) return null
-  if (!bPhrase) return [{ target: a, unlink: "*" }]
+  if (!bPhrase || /^(?:everything|anything|all(?: of them)?)$/i.test(bPhrase.trim())) return [{ target: a, unlink: "*" }]
   const bs = all ? resolveAllOnBoard(bPhrase, handles, a) : [resolveOnBoard(bPhrase, handles, a)].filter((h): h is string => !!h)
   if (!bs.length) return null
   return bs.map((b) => ({ target: a, unlink: b }))
