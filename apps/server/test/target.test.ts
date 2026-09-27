@@ -294,3 +294,39 @@ test("renaming the targeted element (or a part of it), quotes or not", async () 
     expect(g.patches).toEqual([patch])
   }
 })
+
+test("same-sentence ordering, and 'turn the cta and footer into a 2 column layout' with no stray elements", async () => {
+  const { interpret } = await import("../src/engine/index.ts")
+  const run = (text: string, handles = new Map(), target: string | null = null) =>
+    interpret({ text, handles, peek: () => undefined, memory: new Map(), target }).graph
+  expect(run("a landing page with a header, hero, footer and cta, and put the cta before the footer").nodes.map((n) => n.label)).toEqual([
+    "Landing page",
+    "Header",
+    "Hero",
+    "Cta",
+    "Footer",
+  ])
+
+  const server = await startServer()
+  cleanups.push(() => server.stop())
+  const c = await TestClient.connect(server.url, "r")
+  cleanups.push(() => c.close())
+  c.send(new Join({ name: "Ada", color: "#e11d48" }))
+  await c.waitFor(is("Welcome"))
+  const anchor = { x: 0, y: 0 }
+  c.send(new SetInput({ text: "a landing page with a header, a hero, a cta button and a footer", anchor }))
+  c.send(new Commit())
+  const made = (await c.waitFor(is("NodesCommitted"))).nodes
+  const page = made.find((n) => n.type === "page")!
+  const cta = made.find((n) => n.label.toLowerCase().includes("cta"))!
+  const footer = made.find((n) => n.label === "Footer")!
+  c.send(new SetInput({ text: "turn the cta and footer into a 2 column layout, cta on the left and footer on the right", anchor, target: page.id }))
+  const d = await c.waitFor(is("DraftUpdated", (m) => m.draft.text.startsWith("turn")))
+  expect(d.draft.nodes.map((n) => [n.label, n.props.layout])).toEqual([["Two columns", "row"]])
+  c.send(new Commit())
+  const row = (await c.waitFor(is("NodesCommitted", (m) => m.nodes.some((n) => n.label === "Two columns")))).nodes[0]!
+  expect(row.parent).toBe(page.id)
+  const moved = await c.waitFor(is("NodesUpdated", (m) => m.nodes.filter((n) => n.parent === row.id).length === 2))
+  const inRow = moved.nodes.filter((n) => n.parent === row.id).sort((a, b) => a.order - b.order)
+  expect(inRow.map((n) => n.id)).toEqual([cta.id, footer.id])
+})

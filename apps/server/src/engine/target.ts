@@ -349,3 +349,39 @@ export function retypeByName(text: string, handles: HandleInfo, target: string |
   }
   return patches.length ? patches : null
 }
+
+const COLUMNS = /\b(?:(?:2|two)[-\s]?col(?:umn)?s?|side[-\s]by[-\s]side|columns|in a row)\b/i
+
+/**
+ * "turn the cta and footer into a 2 column layout, cta on the left and footer
+ * on the right": one new two-column row where they were, with both moved into
+ * it in the order said. Null unless it names two existing siblings.
+ */
+export function columnsOf(
+  text: string,
+  handles: HandleInfo,
+  target: string | null,
+): { row: EntryGraph["nodes"][number]; patches: EntryPatch[] } | null {
+  if (!COLUMNS.test(text)) return null
+  const m = /^(?:please\s+)?(?:turn|put|make|arrange|place|lay out|set|split|have)\s+(?:the\s+)?(.+?)\s+(?:and|&)\s+(?:the\s+)?(.+?)\s+(?:into|in|as|side|on)\b/i.exec(text.trim())
+  if (!m) return null
+  const find = (p: string) => (target ? resolveIn(p, target, handles) : null) ?? resolveOnBoard(p, handles, "")
+  let left = find(m[1]!)
+  let right = find(m[2]!)
+  if (!left || !right || left === right) return null
+  const parent = handles.get(left)?.parent ?? null
+  if (parent !== (handles.get(right)?.parent ?? null)) return null
+  // "cta on the left … footer on the right", or the other way round.
+  const on = (h: string, side: string) => {
+    const name = words(handles.get(h)?.label ?? h.slice(1))
+    return new RegExp(`${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s+(?:on|to|at|in)\\s+(?:the\\s+)?${side}`, "i").test(words(text))
+  }
+  if (on(left, "right") || on(right, "left")) [left, right] = [right, left]
+  return {
+    row: { key: "columns", type: "section", label: "Two columns", parent, props: { layout: "row" }, before: left },
+    patches: [
+      { target: left, parent: "columns" },
+      { target: right, parent: "columns" },
+    ],
+  }
+}
