@@ -460,7 +460,7 @@ const THEMES: Array<{ pref: ThemePref; label: string; icon: string }> = [
 ]
 
 /** Share this board: its link as a QR code for phones, plus copy. */
-function ShareButton() {
+function ShareButton({ onExport }: { onExport: () => void }) {
   const [qr, setQr] = useState<string | null>(null)
   const open = async () => {
     const QRCode = (await import("qrcode")).default
@@ -488,6 +488,18 @@ function ShareButton() {
             <span className="text-sm font-medium">Scan to join this board</span>
             <img src={qr} alt="QR code for this board's link" className="h-60 w-60 rounded-lg bg-white p-2" />
             <span className="max-w-60 break-all text-center text-[11px] text-[var(--muted)]">{location.href}</span>
+            <div className="my-1 h-px w-full bg-[var(--hairline)]" />
+            <button
+              type="button"
+              onClick={() => {
+                setQr(null)
+                onExport()
+              }}
+              title="⌘/Ctrl+Shift+E"
+              className="w-full rounded-lg border border-[var(--panel-border)] py-1.5 text-xs font-medium hover:bg-black/5 dark:hover:bg-white/10"
+            >
+              Export image… <span className="font-normal text-[var(--muted)]">PNG · PDF</span>
+            </button>
             <button type="button" onClick={() => setQr(null)} className="text-xs text-[var(--muted)] hover:text-[var(--ink)]">
               Close
             </button>
@@ -546,15 +558,7 @@ function TopBar(props: { roomId: string; users: User[]; selfId: string | null; s
         >
           {copied ? "Copied" : "Copy link"}
         </button>
-        <ShareButton />
-        <button
-          type="button"
-          onClick={props.onExport}
-          title="Export image (⌘/Ctrl+Shift+E)"
-          className="rounded-md border border-[var(--panel-border)] px-2 py-0.5 text-xs hover:bg-black/5 dark:hover:bg-white/10"
-        >
-          Export
-        </button>
+        <ShareButton onExport={props.onExport} />
         <ThemeToggle />
         {props.status !== "open" && (
           <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-xs text-amber-600 dark:text-amber-400">
