@@ -5,7 +5,7 @@ import { assemble, countOf } from "../src/engine/assemble.ts"
 import { interpretOffline, materialize, pieceStates } from "../src/engine/index.ts"
 import { split } from "../src/engine/split.ts"
 
-const user = { id: "u1", name: "Ada", color: "#e11d48", cursor: null }
+const user = { id: "u1", name: "Ada", color: "#e11d48", cursor: null, typing: false }
 const anchor = { x: 500, y: 400 }
 
 /** Compact view of a graph: "type:label<parent-type" per node. */

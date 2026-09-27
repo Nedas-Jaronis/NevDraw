@@ -97,11 +97,17 @@ export function ProfileMenu(props: { users: User[]; selfId: string | null; roomI
 function Avatar({ user, title, ring }: { user: User; title: string; ring?: boolean }) {
   return (
     <div
-      title={title}
-      className={`flex h-8 w-8 items-center justify-center rounded-full border-2 border-[var(--panel)] text-xs font-semibold text-white ${ring ? "shadow-sm" : ""}`}
+      title={user.typing ? `${title}, typing…` : title}
+      className={`relative flex h-8 w-8 items-center justify-center rounded-full border-2 border-[var(--panel)] text-xs font-semibold text-white ${ring ? "shadow-sm" : ""}`}
       style={{ background: user.color }}
     >
       {initials(user.name)}
+      {user.typing && (
+        <span aria-label="typing" className="absolute -bottom-0.5 -right-0.5 flex h-3 w-3">
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full opacity-60" style={{ background: user.color }} />
+          <span className="relative inline-flex h-3 w-3 rounded-full border-2 border-[var(--panel)]" style={{ background: user.color }} />
+        </span>
+      )}
     </div>
   )
 }

@@ -151,7 +151,7 @@ test("a wrapper named after a page is still a plain box (section), even if Jev s
 })
 
 describe("positions among siblings", () => {
-  const user = { id: "u", name: "A", color: "#000", cursor: null }
+  const user = { id: "u", name: "A", color: "#000", cursor: null, typing: false }
   const base = (id: string, extra: Record<string, unknown>) => ({
     id, type: "section" as const, label: id, parent: "page", order: 0, props: {}, x: 0, y: 0, pinned: false, authorId: "x", authorColor: "#000", ...extra,
   })
