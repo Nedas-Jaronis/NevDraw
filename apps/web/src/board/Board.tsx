@@ -25,7 +25,8 @@ import { BoardActions } from "./images.tsx"
 import { HighlightContext, RootView } from "./NodeView.tsx"
 import { DebugPanel } from "./DebugPanel.tsx"
 import { EdgeLayer } from "./EdgeLayer.tsx"
-import { DrawToggle, Ink, SketchBar, useSketch } from "./drawing.tsx"
+import { ArrowPreview, Ink, nodeAtPoint, SketchBar, type Tool, Tools, useSketch } from "./drawing.tsx"
+import { SetSketch } from "@rtw/shared"
 import { ExportDialog } from "./ExportDialog.tsx"
 import { ProfileMenu } from "./ProfileMenu.tsx"
 import { SideMenu } from "./SideMenu.tsx"
@@ -56,6 +57,8 @@ type Gesture =
   | { kind: "pinch"; start: { cam: Camera; a: Point; b: Point } }
   /** Drawing mode: a pen stroke. */
   | { kind: "draw" }
+  /** The Arrow tool: dragging from one element to another. */
+  | { kind: "arrow"; from: string | null; start: Point }
 
 type Rect = { left: number; top: number; right: number; bottom: number }
 const rectOf = (a: Point, b: Point): Rect => ({
@@ -87,7 +90,14 @@ function useFrameThrottle<T>(flush: (v: T) => void) {
 export function Board({ roomId, identity }: { roomId: string; identity: Identity }) {
   const { state, send, applyLocal } = useRoom(roomId, identity)
   const [camera, setCamera] = useState<Camera>({ x: 0, y: 0, zoom: 1 })
-  const draw = useSketch({ send, zoom: camera.zoom, nodes: state.nodes, toScreen: (p) => toScreen(camera, p) })
+  /** Select / Draw / Arrow (like Excalidraw's toolbar). */
+  const [tool, setToolState] = useState<Tool>("select")
+  const draw = useSketch({ on: tool === "draw", send, zoom: camera.zoom, nodes: state.nodes, toScreen: (p) => toScreen(camera, p) })
+  const setTool = (t: Tool) => {
+    if (t !== "draw") draw.clear()
+    setToolState(t)
+  }
+  const arrowLine = useRef<SVGLineElement | null>(null)
   const cam = useRef(camera)
   cam.current = camera
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
@@ -198,10 +208,16 @@ export function Board({ roomId, identity }: { roomId: string; identity: Identity
         setSpaceHeld(true)
         return
       }
-      // Drawing mode: D toggles; Enter places the sketch, Esc discards it (or leaves), ⌘Z undoes a stroke.
-      if (e.key.toLowerCase() === "d" && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      // Tools: V select, D draw, A arrow (pressing the current one again goes back to select).
+      const toolKey = { v: "select", d: "draw", a: "arrow" }[e.key.toLowerCase()] as Tool | undefined
+      if (toolKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
         e.preventDefault()
-        draw.toggle()
+        setTool(tool === toolKey && toolKey !== "select" ? "select" : toolKey)
+        return
+      }
+      if (tool === "arrow" && e.key === "Escape") {
+        e.preventDefault()
+        setTool("select")
         return
       }
       if (draw.on) {
@@ -212,7 +228,7 @@ export function Board({ roomId, identity }: { roomId: string; identity: Identity
         }
         if (e.key === "Escape") {
           e.preventDefault()
-          draw.escape()
+          if (!draw.escape()) setTool("select")
           return
         }
         if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") {
@@ -290,8 +306,8 @@ export function Board({ roomId, identity }: { roomId: string; identity: Identity
   const onPointerDown = (e: React.PointerEvent) => {
     // Drawing mode draws over the elements' own widgets too; real UI (toolbars, input) stays UI.
     const onBoard = !!(e.target as Element).closest("[data-world]")
-    if ((e.target as Element).closest("[data-ui]") && !(draw.on && onBoard)) return
-    if (draw.on && onBoard) e.preventDefault()
+    if ((e.target as Element).closest("[data-ui]") && !(tool !== "select" && onBoard)) return
+    if (tool !== "select" && onBoard) e.preventDefault()
     // Clicking the canvas takes focus out of the input, so Delete / Esc act on the board.
     ;(document.activeElement as HTMLElement | null)?.blur()
     ;(e.currentTarget as Element).setPointerCapture(e.pointerId)
@@ -315,6 +331,10 @@ export function Board({ roomId, identity }: { roomId: string; identity: Identity
     if (draw.on && !panning) {
       draw.start(toWorld(cam.current, e.clientX, e.clientY), { x: e.clientX, y: e.clientY })
       gesture.current = { kind: "draw" }
+      return
+    }
+    if (tool === "arrow" && !panning) {
+      gesture.current = { kind: "arrow", from: nodeAtPoint(e.clientX, e.clientY, state.nodes), start: toWorld(cam.current, e.clientX, e.clientY) }
       return
     }
     const node = panning ? null : committedRoot(e.target)
@@ -358,6 +378,19 @@ export function Board({ roomId, identity }: { roomId: string; identity: Identity
       draw.move(toWorld(cam.current, e.clientX, e.clientY))
       return
     }
+    if (g.kind === "arrow") {
+      // The rubber band follows the pointer (drawn straight onto the SVG, no re-render).
+      const p = toWorld(cam.current, e.clientX, e.clientY)
+      const l = arrowLine.current
+      if (l && g.from) {
+        l.setAttribute("x1", String(g.start.x))
+        l.setAttribute("y1", String(g.start.y))
+        l.setAttribute("x2", String(p.x))
+        l.setAttribute("y2", String(p.y))
+        l.setAttribute("visibility", "visible")
+      }
+      return
+    }
     if (g.kind === "none") return
     const dx = e.clientX - g.start.x
     const dy = e.clientY - g.start.y
@@ -382,6 +415,16 @@ export function Board({ roomId, identity }: { roomId: string; identity: Identity
     pointers.current.delete(e.pointerId)
     const g = gesture.current
     if (g.kind === "draw") draw.end({ x: e.clientX, y: e.clientY })
+    if (g.kind === "arrow") {
+      arrowLine.current?.setAttribute("visibility", "hidden")
+      const to = nodeAtPoint(e.clientX, e.clientY, state.nodes)
+      // From one element to another: a real arrow, right away (no Enter needed).
+      if (g.from && to && to !== g.from) {
+        const end = toWorld(cam.current, e.clientX, e.clientY)
+        send(new SetSketch({ strokes: [[g.start, end]], hits: [{ start: g.from, end: to }] }))
+        send(new Commit())
+      }
+    }
     if (g.kind === "drag") {
       finishDrag(g)
       if (!g.moved) {
@@ -412,7 +455,7 @@ export function Board({ roomId, identity }: { roomId: string; identity: Identity
   return (
     <div
       ref={boardRef}
-      className={`board-grid fixed inset-0 touch-none select-none overflow-hidden ${spaceHeld ? "cursor-grab" : draw.on ? "cursor-crosshair" : ""}`}
+      className={`board-grid fixed inset-0 touch-none select-none overflow-hidden ${spaceHeld ? "cursor-grab" : tool !== "select" ? "cursor-crosshair" : ""}`}
       style={{
         backgroundSize: `${22 * camera.zoom}px ${22 * camera.zoom}px`,
         backgroundPosition: `${camera.x}px ${camera.y}px`,
@@ -429,7 +472,8 @@ export function Board({ roomId, identity }: { roomId: string; identity: Identity
         style={{ transform: `translate(${camera.x}px, ${camera.y}px) scale(${camera.zoom})` }}
       >
         <EdgeLayer edges={tree.edges} camera={camera} />
-        <Ink strokes={draw.strokes} live={draw.live} color={color} recognized={!!(state.selfId && state.drafts.get(state.selfId))} />
+        <ArrowPreview lineRef={arrowLine} color={color} />
+        <Ink strokes={draw.strokes} liveLine={draw.liveLine} color={color} recognized={!!(state.selfId && state.drafts.get(state.selfId))} />
         <BoardActions.Provider value={boardActions}>
         <HighlightContext.Provider value={{ handle: highlight, color, target }}>
         <AnimatePresence>
@@ -481,7 +525,7 @@ export function Board({ roomId, identity }: { roomId: string; identity: Identity
       )}
       {others.map((u) => u.cursor && <RemoteCursor key={u.id} user={u} at={toScreen(camera, u.cursor)} />)}
       <ZoomControls zoom={camera.zoom} onZoom={(z) => setCamera((c) => zoomAt(c, window.innerWidth / 2, window.innerHeight / 2, z))} />
-      <DrawToggle on={draw.on} onToggle={draw.toggle} />
+      <Tools tool={tool} onTool={setTool} />
       {draw.on && (
         <SketchBar
           draft={(state.selfId && state.drafts.get(state.selfId)) || undefined}
