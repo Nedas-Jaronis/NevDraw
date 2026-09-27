@@ -73,3 +73,24 @@ body {
 .frame.is-selected > * > .frame-title .frame-type {
   display: none;
 }
+
+/* While exporting: tags and hover-only chrome look the way they do at rest. */
+[data-exporting] .frame-title .frame-handle,
+[data-exporting] .frame-title .frame-note-add {
+  display: none !important;
+}
+[data-exporting] .frame-title .frame-type {
+  display: inline !important;
+}
+/* Arrow labels: a halo in the board color keeps them readable over lines. */
+.edge-label {
+  font-size: 10px;
+  fill: var(--muted);
+  stroke: var(--board-bg);
+  stroke-width: 4px;
+  paint-order: stroke;
+}
+/* No background to blend into: arrow labels drop their halo. */
+[data-exporting="transparent"] svg g[data-edge] text {
+  stroke: transparent !important;
+}

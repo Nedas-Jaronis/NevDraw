@@ -78,21 +78,22 @@ export function EdgeLayer({ edges: all, camera }: { edges: EdgeItem[]; camera: C
         return (
           <g
             key={edge.id}
+            data-edge
+            data-from={edge.from}
+            data-to={edge.to}
             ref={(el) => {
               if (el) groups.current.set(edge.id, el)
               else groups.current.delete(edge.id)
             }}
             style={{ visibility: "hidden" }}
           >
-            <path fill="none" stroke={color} strokeWidth={1.5} strokeLinecap="round" strokeDasharray={draft ? "5 4" : undefined} />
-            <path fill={color} stroke="none" />
+            <path style={{ fill: "none", stroke: color, strokeWidth: 1.5, strokeLinecap: "round" }} strokeDasharray={draft ? "5 4" : undefined} />
+            <path style={{ fill: color, stroke: "none" }} />
             <text
               textAnchor="middle"
-              className="text-[10px] tracking-wide"
-              fill={draft ? edge.authorColor : "var(--muted)"}
-              stroke="var(--board-bg)"
-              strokeWidth={4}
-              paintOrder="stroke"
+              // Styled from the stylesheet (see .edge-label) so image exports get resolved colors.
+              className="edge-label tracking-wide"
+              style={draft ? { fill: edge.authorColor } : undefined}
             >
               {text}
             </text>

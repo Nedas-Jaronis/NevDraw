@@ -37,6 +37,7 @@ export function RootView(props: {
   return (
     <motion.div
       data-root-id={draft ? undefined : node.id}
+      data-draft-root={draft ? "" : undefined}
       initial={{ opacity: 0, scale: 0.94, x: node.x, y: node.y }}
       animate={{ opacity: 1, scale: dragging ? 1.01 : 1, x: node.x, y: node.y }}
       exit={{ opacity: 0, scale: 0.94, transition: { duration: 0.16 } }}
@@ -47,11 +48,12 @@ export function RootView(props: {
     >
       {selected && (
         <>
-          <div className="pointer-events-none absolute -inset-1.5 rounded-[20px]" style={{ boxShadow: `0 0 0 1.5px ${accent}` }} />
+          <div data-export-hide className="pointer-events-none absolute -inset-1.5 rounded-[20px]" style={{ boxShadow: `0 0 0 1.5px ${accent}` }} />
           {props.showDelete && (
           <button
             type="button"
             data-ui
+            data-export-hide
             aria-label={`Delete ${node.label}`}
             onClick={props.onDelete}
             className="absolute -right-3 -top-3 z-10 flex h-6 w-6 items-center justify-center rounded-full border border-[var(--panel-border)] bg-[var(--panel)] text-xs text-[var(--muted)] shadow-sm hover:text-[var(--ink)]"
@@ -333,6 +335,7 @@ export function Title({ node, showAuthor, compact }: { node: BoardNode; showAuth
           <button
             type="button"
             data-ui
+            data-export-hide
             title={open ? "Hide note" : note ? "Show note" : "Add a note"}
             aria-label={open ? "Hide note" : note ? "Show note" : "Add a note"}
             onClick={(e) => {

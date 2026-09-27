@@ -24,6 +24,7 @@ import { BoardActions } from "./images.tsx"
 import { HighlightContext, RootView } from "./NodeView.tsx"
 import { DebugPanel } from "./DebugPanel.tsx"
 import { EdgeLayer } from "./EdgeLayer.tsx"
+import { ExportDialog } from "./ExportDialog.tsx"
 import { HelpButton } from "./HelpButton.tsx"
 import { buildTree } from "./tree.ts"
 import { applyTheme, followSystem, loadTheme, type ThemePref } from "../theme.ts"
@@ -74,6 +75,7 @@ export function Board({ roomId, identity }: { roomId: string; identity: Identity
   const cam = useRef(camera)
   cam.current = camera
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
+  const [exporting, setExporting] = useState(false)
   const [marquee, setMarquee] = useState<Rect | null>(null)
   const [highlight, setHighlight] = useState<string | null>(null)
   /** Elements being dragged follow the pointer locally; everyone else gets per-frame updates. */
@@ -156,6 +158,11 @@ export function Board({ roomId, identity }: { roomId: string; identity: Identity
     const onKey = (e: KeyboardEvent) => {
       const active = document.activeElement as HTMLElement | null
       const typing = active?.tagName === "INPUT" || active?.tagName === "TEXTAREA" || active?.isContentEditable === true
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "e") {
+        e.preventDefault()
+        setExporting(true)
+        return
+      }
       if (typing) return
       if (e.key === " ") {
         e.preventDefault()
@@ -322,6 +329,7 @@ export function Board({ roomId, identity }: { roomId: string; identity: Identity
       onPointerLeave={() => queueCursor(null)}
     >
       <div
+        data-world
         className="absolute left-0 top-0 origin-top-left"
         style={{ transform: `translate(${camera.x}px, ${camera.y}px) scale(${camera.zoom})` }}
       >
@@ -388,7 +396,14 @@ export function Board({ roomId, identity }: { roomId: string; identity: Identity
       />
       {!DEBUG && <HelpButton />}
       {DEBUG && <DebugPanel pieces={(state.selfId && state.debug.get(state.selfId)) || []} />}
-      <TopBar roomId={roomId} users={[...state.users.values()]} selfId={state.selfId} status={state.status} />
+      <TopBar
+        roomId={roomId}
+        users={[...state.users.values()]}
+        selfId={state.selfId}
+        status={state.status}
+        onExport={() => setExporting(true)}
+      />
+      {exporting && <ExportDialog room={roomId} selected={selected} zoom={camera.zoom} onClose={() => setExporting(false)} />}
     </div>
   )
 }
@@ -505,7 +520,7 @@ function ThemeToggle() {
   )
 }
 
-function TopBar(props: { roomId: string; users: User[]; selfId: string | null; status: string }) {
+function TopBar(props: { roomId: string; users: User[]; selfId: string | null; status: string; onExport: () => void }) {
   const [copied, setCopied] = useState(false)
   const copy = async () => {
     try {
@@ -532,6 +547,14 @@ function TopBar(props: { roomId: string; users: User[]; selfId: string | null; s
           {copied ? "Copied" : "Copy link"}
         </button>
         <ShareButton />
+        <button
+          type="button"
+          onClick={props.onExport}
+          title="Export image (⌘/Ctrl+Shift+E)"
+          className="rounded-md border border-[var(--panel-border)] px-2 py-0.5 text-xs hover:bg-black/5 dark:hover:bg-white/10"
+        >
+          Export
+        </button>
         <ThemeToggle />
         {props.status !== "open" && (
           <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-xs text-amber-600 dark:text-amber-400">
