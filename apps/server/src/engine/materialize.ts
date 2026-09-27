@@ -293,6 +293,7 @@ export function materialize(input: {
       ...(p.note?.trim() ? { note: p.note.trim() } : {}),
       ...(order !== undefined ? { order } : {}),
       ...(p.items ? { items: p.items.slice(0, 12).map((x) => x.slice(0, 60)) } : {}),
+      ...(p.of ? { of: p.of } : {}),
       ...(p.unlink === "*" ? { unlink: "*" } : p.unlink && board.byHandle.get(p.unlink) ? { unlink: board.byHandle.get(p.unlink)!.id } : {}),
     }
     if (Object.keys(patch).length > 1) patches.push(patch)

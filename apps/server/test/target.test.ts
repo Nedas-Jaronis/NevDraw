@@ -171,3 +171,17 @@ test("relinking two elements that are already linked adds nothing; after an unli
   const again = await c.waitFor(is("NodesCommitted", (m) => m.edges.length === 1 && m.nodes.length === 0))
   expect(again.edges[0]).toMatchObject({ from: form.id, to: srv.id })
 })
+
+test("retyping into a collection keeps count and kind: 'change this to a list of contacts 4 of them'", async () => {
+  const { interpret } = await import("../src/engine/index.ts")
+  const H2 = new Map([["@contact-form", { container: true, type: "form" as never, label: "Contact form", parent: null, items: ["Name", "Email", "Message"] }]])
+  const run = (text: string) => interpret({ text, handles: H2, peek: () => undefined, memory: new Map(), target: "@contact-form" }).graph
+  expect(run("change this to a list of contacts 4 of them").patches).toEqual([
+    { target: "@contact-form", type: "list", of: "contact", items: ["Contact 1", "Contact 2", "Contact 3", "Contact 4"] },
+  ])
+  expect(run("make it 3 contacts").patches).toEqual([
+    { target: "@contact-form", type: "list", of: "contact", items: ["Contact 1", "Contact 2", "Contact 3"] },
+  ])
+  expect(run("turn it into a table of timers").patches).toEqual([{ target: "@contact-form", type: "table", of: "timer" }])
+  expect(run("make it red").patches).toEqual([{ target: "@contact-form", color: "#e03131" }])
+})

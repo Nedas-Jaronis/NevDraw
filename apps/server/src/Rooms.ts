@@ -631,6 +631,7 @@ export const RoomsLive = Layer.effect(
                   ...(p.color ? { color: p.color } : {}),
                   ...(p.note ? { note: p.note.slice(0, 2000) } : {}),
                   ...(p.items ? { items: p.items.slice(0, 12).map((x) => x.slice(0, 60)) } : {}),
+                  ...(p.of ? { of: p.of } : {}),
                 },
                 ...(moving ? { parent: p.parent!, order: nextOrder(p.parent!) } : p.order !== undefined ? { order: p.order } : {}),
               }
