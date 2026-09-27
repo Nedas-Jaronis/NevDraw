@@ -10,7 +10,7 @@ export default defineConfig({
     port: 3000,
     host: true,
     allowedHosts: [".trycloudflare.com"],
-    proxy: { "/ws": { target: "ws://localhost:3001", ws: true } },
+    proxy: { "/ws": { target: "ws://localhost:3001", ws: true }, "/api": { target: "http://localhost:3001" } },
     // WSL can't watch files on the Windows drive (/mnt/c); poll there instead.
     watch: { usePolling: process.cwd().startsWith("/mnt/") },
   },
