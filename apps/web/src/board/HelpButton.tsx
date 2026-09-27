@@ -41,8 +41,8 @@ export function HelpButton() {
           >
             <header className="flex items-start justify-between gap-4 border-b border-[var(--hairline)] px-6 pb-4 pt-6">
               <div>
-                <h2 className="text-[19px] font-semibold tracking-tight">How it works</h2>
-                <p className="mt-1 text-[12.5px] text-[var(--muted)]">Describe it. Watch it appear. Press Enter.</p>
+                <h2 className="text-[19px] font-semibold tracking-tight">About</h2>
+                <p className="mt-1 text-[12.5px] text-[var(--muted)]">Why Live Wireframes exists.</p>
               </div>
               <CloseButton onClick={() => setOpen(false)} />
             </header>
@@ -62,68 +62,9 @@ export function HelpButton() {
                   them, with arrows between them. No dragging boxes from a palette: you describe it, the board draws it.
                 </p>
               </Section>
-
-              <Section title="How your typing works">
-                <ul className="flex flex-col gap-1.5">
-                  <Li>Your words turn into a dashed draft instantly, for everyone to see.</Li>
-                  <Li>When you pause, an AI re-reads the whole sentence and fixes names, types, nesting and arrows.</Li>
-                  <Li>
-                    <Key>Enter</Key> commits it; <Key>Esc</Key> throws the draft away.
-                  </Li>
-                  <Li>
-                    Every element gets a tag like <Code>@signup-form</Code>. Type <Code>@</Code> to point at one. Hover an
-                    element to see its tag, and click the tag to rename it.
-                  </Li>
-                </ul>
-              </Section>
-
-              <Section title="Try saying">
-                <Examples
-                  items={[
-                    "a landing page with a navbar, a hero, three pricing cards and a footer",
-                    "a docs page with a sidebar and a content section",
-                    "a signup form with name, email and password",
-                    "5 servers through 2 load balancers, each load balancer takes 3 databases",
-                    "the checkout calls stripe, then it emails the user via sendgrid",
-                    "a table of timers with increments of 15",
-                  ]}
-                />
-              </Section>
-
-              <Section title="Changing what's there">
-                <Examples
-                  items={[
-                    "make @hero tiffany blue",
-                    "turn all servers inside @servers-stack blue",
-                    "add a redis cache between @api and @postgres",
-                    "wrap @api @postgres into a backend box",
-                    "detach @server-1 from @servers-stack",
-                    "embed an image inside the hero",
-                    "annotate @hero: swap in the real photo",
-                  ]}
-                />
-              </Section>
-
-              <Section title="Arrows read like English">
-                <p>
-                  <em>calls, uses, sends to</em> → calls · <em>reads from, queries</em> → reads · <em>writes to, stores in</em> →
-                  writes · <em>publishes to</em> · <em>consumes from, subscribes to</em> · <em>navigates to, leads to</em>. Counts
-                  make separate numbered pieces; say <em>each … takes 3</em> to split them.
-                </p>
-              </Section>
-
-              <Section title="Hands-on">
-                <ul className="flex flex-col gap-1.5">
-                  <Li>Drag elements; they stay where you put them. Drag on empty space to box-select.</Li>
-                  <Li>
-                    <Key>Delete</Key> removes the selection, <Key>⌘/Ctrl A</Key> selects all, hold <Key>Space</Key> to pan,
-                    pinch or <Key>Ctrl</Key>+scroll to zoom.
-                  </Li>
-                  <Li>Drop a picture on any element, or use Upload / Link on images and heroes.</Li>
-                  <Li>The note icon on an element opens a note for your team. Click it again to minimize.</Li>
-                  <Li>The menu (top left) has this board's link and QR code, Export image and the theme. Your avatar (top right) opens a public link for anyone to join.</Li>
-                </ul>
-              </Section>
+              <a href="/docs" className="text-[13px] font-medium text-[var(--ink)] underline decoration-[var(--hairline)] underline-offset-4 hover:decoration-[var(--ink)]">
+                Read the docs →
+              </a>
             </div>
           </motion.aside>
         )}
@@ -150,42 +91,5 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
       <h3 className="mb-2 text-[15px] font-semibold tracking-tight text-[var(--ink)]">{title}</h3>
       {children}
     </section>
-  )
-}
-
-function Li({ children }: { children: ReactNode }) {
-  return <li className="relative pl-3 before:absolute before:left-0 before:top-[0.6em] before:h-1 before:w-1 before:rounded-full before:bg-[var(--muted)]">{children}</li>
-}
-
-function Key({ children }: { children: ReactNode }) {
-  return <kbd className="rounded border border-[var(--hairline)] px-1 font-sans text-[10px]">{children}</kbd>
-}
-
-function Code({ children }: { children: ReactNode }) {
-  return <code className="rounded bg-[var(--ink)]/5 px-1 text-[11px]">{children}</code>
-}
-
-/** Example prompts; click one to copy it. */
-function Examples({ items }: { items: string[] }) {
-  const [copied, setCopied] = useState<string | null>(null)
-  return (
-    <ul className="flex flex-col gap-1.5">
-      {items.map((x) => (
-        <li key={x}>
-          <button
-            type="button"
-            title="Copy"
-            onClick={() => {
-              void navigator.clipboard?.writeText(x).catch(() => {})
-              setCopied(x)
-              setTimeout(() => setCopied((c) => (c === x ? null : c)), 1200)
-            }}
-            className="w-full rounded-lg bg-[var(--ink)]/[0.04] px-3 py-2 text-left text-[12px] text-[var(--ink)] transition hover:bg-[var(--ink)]/[0.08] active:scale-[0.99]"
-          >
-            {copied === x ? "Copied ✓" : x}
-          </button>
-        </li>
-      ))}
-    </ul>
   )
 }
