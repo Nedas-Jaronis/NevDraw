@@ -14,6 +14,8 @@ export type PieceAnswers = {
   isContainer: number
   /** Does this piece belong inside the previous container even without "with"? */
   childOfContainer: number
+  /** Jev: does this piece describe several copies of one element as a group ("a 5 server stack")? */
+  isGroup?: number
   /** A layout the text asks for, if any. */
   layout: { value: Layout | "none"; confidence: number }
   /** A relationship between two elements (#7). */

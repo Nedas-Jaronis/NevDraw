@@ -41,6 +41,7 @@ export function toPieceAnswers(a: {
   nodeType: Choice<string>
   isContainer: { noul: number }
   childOfContainer: { noul: number }
+  isGroup?: { noul: number }
   layout: Choice<string>
   edgeKind: Choice<string>
   targetsHandle: { noul: number }
@@ -51,6 +52,7 @@ export function toPieceAnswers(a: {
     nodeType: { value: type, confidence: a.nodeType.confidence },
     isContainer: a.isContainer.noul,
     childOfContainer: a.childOfContainer.noul,
+    ...(a.isGroup ? { isGroup: a.isGroup.noul } : {}),
     layout: { value: a.layout.choice as Layout | "none", confidence: a.layout.confidence },
     edgeKind: { value: a.edgeKind.choice as EdgeKind | "none", confidence: a.edgeKind.confidence },
     targetsHandle: a.targetsHandle.noul,

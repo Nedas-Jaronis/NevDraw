@@ -417,7 +417,7 @@ export function Board({ roomId, identity }: { roomId: string; identity: Identity
     if (g.kind === "draw") draw.end({ x: e.clientX, y: e.clientY })
     if (g.kind === "arrow") {
       arrowLine.current?.setAttribute("visibility", "hidden")
-      const to = nodeAtPoint(e.clientX, e.clientY, state.nodes)
+      const to = nodeAtPoint(e.clientX, e.clientY, state.nodes, 48)
       // From one element to another: a real arrow, right away (no Enter needed).
       if (g.from && to && to !== g.from) {
         const end = toWorld(cam.current, e.clientX, e.clientY)

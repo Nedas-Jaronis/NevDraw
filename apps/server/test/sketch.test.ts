@@ -185,3 +185,15 @@ test("real mouse input: a box drawn as two L's with an X in one stroke is an ima
   const x = [...line(265, 215, 455, 345), ...line(455, 345, 455, 215), ...line(455, 215, 265, 345)]
   expect(guess(l1, l2, x)).toBe("image")
 })
+
+test("a stroke that starts on an element but reaches nothing makes nothing (never a Text element)", async () => {
+  const { a } = await room()
+  a.send(new SetInput({ text: "an api", anchor: { x: 0, y: 0 } }))
+  a.send(new Commit())
+  const [api] = (await a.waitFor(is("NodesCommitted"))).nodes
+  const seen = a.received.length
+  const arc = Array.from({ length: 20 }, (_, i) => ({ x: 100 + i * 10, y: 200 - Math.sin((i / 19) * Math.PI) * 40 }))
+  a.send(new SetSketch({ strokes: [arc], hits: [{ start: api!.id, end: null }] }))
+  await Bun.sleep(150)
+  expect(a.received.slice(seen).some((m) => m._tag === "DraftUpdated" && m.draft.nodes.length > 0)).toBe(false)
+})

@@ -161,3 +161,29 @@ describe("materialize (key diff)", () => {
     expect(b.nodes.map((x) => x.label)).toEqual(["Page", "Navbar"])
   })
 })
+
+test("when Jev says a piece is a group, code reads how many and of what (no phrasing rules)", async () => {
+  const { interpret } = await import("../src/engine/index.ts")
+  const { keywordAnswers } = await import("../src/engine/answers.ts")
+  // Jev's verdict, stubbed: the piece is a group of copies.
+  const peek = (st: { piece: string }) => ({ ...keywordAnswers({ index: 0, text: st.piece, connector: "start" }), isGroup: 0.95, source: "jev" as const })
+  for (const [text, labels] of [
+    ["a 5 server stack", ["Server 1", "Server 2", "Server 3", "Server 4", "Server 5"]],
+    ["a trio of api nodes", ["Api 1", "Api 2", "Api 3"]],
+    ["replicated redis x3", ["Redis 1", "Redis 2", "Redis 3"]],
+  ] as const) {
+    const g = interpret({ text, handles: new Map(), peek: peek as never, memory: new Map() }).graph
+    expect(g.nodes.map((n) => n.label)).toEqual([...labels])
+  }
+})
+
+test("a count survives what the text says about the copies ('4 independent servers that are all orange')", async () => {
+  const { interpret } = await import("../src/engine/index.ts")
+  const { keywordAnswers } = await import("../src/engine/answers.ts")
+  for (const isGroup of [0.95, 0.1]) {
+    const peek = (st: { piece: string }) => ({ ...keywordAnswers({ index: 0, text: st.piece, connector: "start" }), isGroup, source: "jev" as const })
+    const g = interpret({ text: "4 independent servers that are all orange", handles: new Map(), peek: peek as never, memory: new Map() }).graph
+    expect(g.nodes.map((n) => n.label)).toEqual(["Independent server 1", "Independent server 2", "Independent server 3", "Independent server 4"])
+    expect(new Set(g.nodes.map((n) => n.props.color))).toEqual(new Set(["#ff7a1a"]))
+  }
+})
