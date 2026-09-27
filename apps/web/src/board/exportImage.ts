@@ -2,7 +2,7 @@
  * Export the board as an image, the way Excalidraw does it: the committed
  * elements (or only the selected ones) and their arrows, tightly cropped with
  * a little padding, at 1×/2×/3×, with or without the background, in light or
- * dark. Drafts, selection rings and editing controls are left out.
+ * dark. Your own draft is included; selection rings and editing controls are left out.
  */
 import { toCanvas } from "html-to-image"
 
@@ -51,8 +51,9 @@ function boundsOf(world: HTMLElement, only: ReadonlySet<string> | null, zoom: nu
     x1 = Math.max(x1, x + w)
     y1 = Math.max(y1, y + h)
   }
-  for (const el of world.querySelectorAll<HTMLElement>("[data-root-id]")) {
-    if (only && !only.has(el.getAttribute("data-root-id")!)) continue
+  // Your own draft is in the picture too (drafts are private, so it's only ever yours): what you see is what you get.
+  for (const el of world.querySelectorAll<HTMLElement>("[data-root-id], [data-draft-root]")) {
+    if (only && !only.has(el.getAttribute("data-root-id") ?? "")) continue
     const r = el.getBoundingClientRect()
     add((r.left - origin.left) / zoom, (r.top - origin.top) / zoom, r.width / zoom, r.height / zoom)
   }
@@ -114,8 +115,8 @@ export async function renderExport(opts: ExportOptions, zoom: number): Promise<H
       filter: (node) => {
         if (!(node instanceof Element)) return true
         if (node.hasAttribute("data-export-hide")) return false
-        // Drafts (someone's typing) aren't part of the picture.
-        if (node.hasAttribute("data-draft-root")) return false
+        // Your draft is exported with its arrows, unless only a selection is.
+        if (node.hasAttribute("data-draft-root")) return !opts.only
         if (opts.only && node.hasAttribute("data-root-id") && !opts.only.has(node.getAttribute("data-root-id")!)) return false
         if (node instanceof SVGGElement && node.hasAttribute("data-edge")) return keepEdge(node, opts.only)
         return true
