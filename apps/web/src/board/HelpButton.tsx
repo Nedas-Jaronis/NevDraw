@@ -46,8 +46,8 @@ export function HelpButton() {
               </div>
               <CloseButton onClick={() => setOpen(false)} />
             </header>
-            <div className="sleek-scroll flex flex-1 flex-col divide-y divide-[var(--hairline)] overflow-y-auto px-6 text-[12.5px] leading-relaxed text-[var(--ink)]/85">
-              <Section icon="✦" tint="#7c3aed" title="The story">
+            <div className="sleek-scroll flex flex-1 flex-col gap-7 overflow-y-auto px-6 pb-8 pt-6 text-[13px] leading-relaxed text-[var(--ink)]/80">
+              <Section title="The story">
                 <p>
                   It started with{" "}
                   <a href="https://github.com/anishfn/shapeshift" target="_blank" rel="noreferrer" className="underline decoration-dotted">
@@ -63,7 +63,7 @@ export function HelpButton() {
                 </p>
               </Section>
 
-              <Section icon="⌨" tint="#2563eb" title="How your typing works">
+              <Section title="How your typing works">
                 <ul className="flex flex-col gap-1.5">
                   <Li>Your words turn into a dashed draft instantly, for everyone to see.</Li>
                   <Li>When you pause, an AI re-reads the whole sentence and fixes names, types, nesting and arrows.</Li>
@@ -77,7 +77,7 @@ export function HelpButton() {
                 </ul>
               </Section>
 
-              <Section icon="✎" tint="#0891b2" title="Try saying" hint="Click one to copy it">
+              <Section title="Try saying">
                 <Examples
                   items={[
                     "a landing page with a navbar, a hero, three pricing cards and a footer",
@@ -90,7 +90,7 @@ export function HelpButton() {
                 />
               </Section>
 
-              <Section icon="↻" tint="#16a34a" title="Changing what's there">
+              <Section title="Changing what's there">
                 <Examples
                   items={[
                     "make @hero tiffany blue",
@@ -104,7 +104,7 @@ export function HelpButton() {
                 />
               </Section>
 
-              <Section icon="→" tint="#d97706" title="Arrows read like English">
+              <Section title="Arrows read like English">
                 <p>
                   <em>calls, uses, sends to</em> → calls · <em>reads from, queries</em> → reads · <em>writes to, stores in</em> →
                   writes · <em>publishes to</em> · <em>consumes from, subscribes to</em> · <em>navigates to, leads to</em>. Counts
@@ -112,7 +112,7 @@ export function HelpButton() {
                 </p>
               </Section>
 
-              <Section icon="⌘" tint="#db2777" title="Hands-on">
+              <Section title="Hands-on">
                 <ul className="flex flex-col gap-1.5">
                   <Li>Drag elements; they stay where you put them. Drag on empty space to box-select.</Li>
                   <Li>
@@ -143,21 +143,11 @@ export function HelpButton() {
   )
 }
 
-/** A section: a small tinted icon tile, a sentence-case heading, then its content. */
-function Section({ icon, tint, title, hint, children }: { icon: string; tint: string; title: string; hint?: string; children: ReactNode }) {
+/** A docs-style section: a plain heading and its text. */
+function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section className="py-5">
-      <div className="mb-3 flex items-center gap-2.5">
-        <span
-          aria-hidden
-          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[12px]"
-          style={{ color: tint, background: `color-mix(in srgb, ${tint} 14%, transparent)` }}
-        >
-          {icon}
-        </span>
-        <h3 className="flex-1 text-[13.5px] font-semibold tracking-tight text-[var(--ink)]">{title}</h3>
-        {hint && <span className="text-[11px] text-[var(--muted)]">{hint}</span>}
-      </div>
+    <section>
+      <h3 className="mb-2 text-[15px] font-semibold tracking-tight text-[var(--ink)]">{title}</h3>
       {children}
     </section>
   )
