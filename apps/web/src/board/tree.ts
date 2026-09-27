@@ -1,7 +1,13 @@
 import type { BoardEdge, BoardNode, Draft } from "@rtw/shared"
 import type { RoomState } from "../room/state.ts"
 
-export type Item = { node: BoardNode; draft: boolean; typing?: string }
+export type Item = {
+  node: BoardNode
+  draft: boolean
+  typing?: string
+  /** A pending "remove": shown faded and struck through until Enter. */
+  removing?: boolean
+}
 
 export type EdgeItem = { edge: BoardEdge; draft: boolean }
 
@@ -47,13 +53,17 @@ export function buildTree(state: RoomState): Tree {
     }
     // Preview the change dashed, in the editor's color, until they press Enter.
     const p = change.patch
+    if (p.remove) {
+      items.set(node.id, { node: { ...base, authorColor: change.color }, draft: true, removing: true })
+      continue
+    }
     items.set(node.id, {
       node: {
         ...base,
         ...(p.label ? { label: p.label } : {}),
         ...(p.type ? { type: p.type } : {}),
         props: { ...base.props, ...(p.color ? { color: p.color } : {}) },
-        ...(p.parent ? { parent: p.parent, order: 1000 + base.order } : {}),
+        ...(p.parent ? { parent: p.parent, order: 1000 + base.order } : p.order !== undefined ? { order: p.order } : {}),
         authorColor: change.color,
       },
       draft: true,

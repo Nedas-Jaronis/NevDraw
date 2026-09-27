@@ -35,6 +35,8 @@ export class SetInput extends Schema.TaggedClass<SetInput>()("SetInput", {
   text: Schema.String.pipe(Schema.maxLength(2000)),
   /** Center of the typist's viewport in board coordinates: where new top-level drafts appear. */
   anchor: Point,
+  /** The element this person clicked: what they type edits it. */
+  target: Schema.optional(Schema.String),
 }) {}
 
 /** Enter: turn the current draft into committed nodes. */

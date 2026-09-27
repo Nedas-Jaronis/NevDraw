@@ -47,6 +47,7 @@ describe("LLM wire format", () => {
     const u = JSON.parse(userPrompt({ text: "x", board: [{ handle: "@db", type: "database", label: "Db", parent: null, order: 0 }], draft: [{ key: "p0", type: "box", label: "X", parent: null }] }))
     expect(u).toEqual({
       text: "x",
+      target: null,
       board: [{ handle: "@db", type: "database", label: "Db", parent: null, order: 0 }],
       recent: [],
       draft: [{ key: "p0", type: "box", label: "X", parent: null }],

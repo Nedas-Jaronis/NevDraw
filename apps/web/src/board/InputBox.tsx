@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import {
   acceptSuggestion,
   activeMention,
@@ -22,12 +22,24 @@ export function InputBox(props: {
   onCommit: () => void
   onDiscard: () => void
   onHighlight: (handle: string | null) => void
+  /** The clicked element and its ancestors (outermost first); empty when nothing is targeted. */
+  target: ReadonlyArray<{ id: string; label: string }>
+  onTarget: (id: string | null) => void
 }) {
   const [text, setText] = useState("")
   const [caret, setCaret] = useState(0)
   const [active, setActive] = useState(0)
   const [dismissed, setDismissed] = useState<number | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const aimed = props.target.at(-1)
+  // Retargeting re-reads what's already typed against the new element.
+  const lastTarget = useRef(aimed?.id)
+  useEffect(() => {
+    if (lastTarget.current === aimed?.id) return
+    lastTarget.current = aimed?.id
+    if (text.trim()) props.onChange(text)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aimed?.id])
 
   const mention = activeMention(text, caret)
   const matches = useMemo(() => (mention ? matchHandles(mention.query, props.handles) : []), [mention?.query, props.handles])
@@ -116,6 +128,37 @@ export function InputBox(props: {
           </ul>
         )}
         <div className="rounded-2xl bg-[var(--panel)] shadow-lg" style={{ border: `2px solid ${props.color}` }}>
+          {aimed && (
+            <div className="flex items-center gap-1 border-b border-[var(--panel-border)] px-4 py-1.5 text-[12px]">
+              <span className="mr-1 text-[var(--muted)]">Editing</span>
+              {props.target.map((t, i) => (
+                <span key={t.id} className="flex items-center gap-1">
+                  {i > 0 && <span className="text-[var(--muted)]">›</span>}
+                  <button
+                    type="button"
+                    onPointerDown={(e) => e.preventDefault()}
+                    onClick={() => props.onTarget(t.id)}
+                    title={i < props.target.length - 1 ? `Edit ${t.label} instead` : undefined}
+                    className={`max-w-40 truncate rounded-md px-1.5 py-0.5 transition ${
+                      t.id === aimed.id ? "font-medium text-[var(--ink)]" : "text-[var(--muted)] hover:bg-[var(--ink)]/5 hover:text-[var(--ink)]"
+                    }`}
+                    style={t.id === aimed.id ? { background: `color-mix(in srgb, ${props.color} 14%, transparent)` } : undefined}
+                  >
+                    {t.label}
+                  </button>
+                </span>
+              ))}
+              <button
+                type="button"
+                aria-label="Stop editing this element"
+                onPointerDown={(e) => e.preventDefault()}
+                onClick={() => props.onTarget(null)}
+                className="ml-auto flex h-5 w-5 items-center justify-center rounded-full text-[var(--muted)] hover:bg-[var(--ink)]/5 hover:text-[var(--ink)]"
+              >
+                ✕
+              </button>
+            </div>
+          )}
           <input
             ref={inputRef}
             id="board-input"
@@ -125,7 +168,7 @@ export function InputBox(props: {
             value={text}
             autoFocus
             autoComplete="off"
-            placeholder="Describe a page, a component or a service…"
+            placeholder={aimed ? `Edit ${aimed.label}: add, remove, change or move…` : "Describe a page, a component or a service…"}
             className="w-full bg-transparent px-4 py-3 text-base outline-none placeholder:text-[var(--muted)]"
             onChange={(e) => update(e.target.value, e.target.selectionStart ?? e.target.value.length)}
             onSelect={(e) => setCaret(e.currentTarget.selectionStart ?? 0)}

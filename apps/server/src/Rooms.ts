@@ -84,7 +84,7 @@ export const normalizeHandle = (raw: string): string | null => {
 export type Session = {
   readonly selfId: string
   readonly moveCursor: (cursor: Point | null) => Effect.Effect<void>
-  readonly setInput: (text: string, anchor: Point) => Effect.Effect<void>
+  readonly setInput: (text: string, anchor: Point, target?: string) => Effect.Effect<void>
   readonly commit: Effect.Effect<void>
   readonly discard: Effect.Effect<void>
   readonly moveNode: (id: string, x: number, y: number, final: boolean) => Effect.Effect<void>
@@ -299,6 +299,9 @@ export const RoomsLive = Layer.effect(
         let pieceMemory: ReadonlyMap<number, PieceMemory> = new Map()
         let inflight: Fiber.RuntimeFiber<void> | null = null
         let latest: { text: string; anchor: Point } | null = null
+        /** The element this person clicked (its id): what they type edits it. */
+        let targetId: string | null = null
+        const targetHandle = () => (targetId ? (room.nodes.get(targetId)?.handle ?? null) : null)
         // The LLM cleanup pass: its pending fiber, and its result for one exact text.
         let llmFiber: Fiber.RuntimeFiber<void> | null = null
         let llmResult: { text: string; graph: EntryGraph } | null = null
@@ -344,6 +347,7 @@ export const RoomsLive = Layer.effect(
             board: boardSummary(room),
             recent: recentHandles(),
             draft: (lastGraph?.nodes ?? []).map((n) => ({ key: n.key, type: n.type, label: n.label, parent: n.parent })),
+            target: targetHandle(),
           })
 
         /** One LLM request whose answer anyone can wait on (null when it fails or is cancelled). */
@@ -384,6 +388,7 @@ export const RoomsLive = Layer.effect(
               recent: recentHandles(),
               peek: classifier.peek,
               memory: pieceMemory,
+              target: targetHandle(),
             })
             pieceMemory = r.memory
             lastGraph = r.graph
@@ -435,8 +440,15 @@ export const RoomsLive = Layer.effect(
               return broadcast(room, new CursorMoved({ id: user.id, cursor }), user.id)
             }),
 
-          setInput: (text, anchor) =>
+          setInput: (text, anchor, target) =>
             Effect.gen(function* () {
+              // A new target reads the text afresh (and the LLM's old reading no longer applies).
+              const nextTarget = target && room.nodes.has(target) ? target : null
+              if (nextTarget !== targetId) {
+                targetId = nextTarget
+                llmResult = null
+                pieceMemory = new Map()
+              }
               yield* cancelInflight
               if (!self()) return
               if (!text.trim()) return yield* clearDraft
@@ -533,7 +545,24 @@ export const RoomsLive = Layer.effect(
               for (let hops = 0; cur.parent !== null && hops < 64; hops++) cur = room.nodes.get(cur.parent) ?? { ...cur, parent: null }
               return cur
             }
+            // Removals first: the element and everything inside it, with their arrows.
+            const removedIds: string[] = []
             for (const p of draft.patches) {
+              if (!p.remove || !room.nodes.has(p.id)) continue
+              const ids = [p.id]
+              for (let i = 0; i < ids.length; i++) for (const c of room.nodes.values()) if (c.parent === ids[i]) ids.push(c.id)
+              for (const d of ids) {
+                const h = room.nodes.get(d)?.handle
+                if (h) room.handles.delete(h)
+                room.nodes.delete(d)
+                removedIds.push(d)
+              }
+            }
+            const removedSet = new Set(removedIds)
+            const removedEdges = [...room.edges.values()].filter((e) => removedSet.has(e.from) || removedSet.has(e.to)).map((e) => e.id)
+            for (const e of removedEdges) room.edges.delete(e)
+            for (const p of draft.patches) {
+              if (p.remove) continue
               const n = room.nodes.get(p.id)
               if (!n) continue
               if (p.unlink) {
@@ -566,12 +595,16 @@ export const RoomsLive = Layer.effect(
                 ...(p.label ? { label: p.label } : {}),
                 ...(p.type ? { type: p.type } : {}),
                 props: { ...n.props, ...(p.color ? { color: p.color } : {}), ...(p.note ? { note: p.note.slice(0, 2000) } : {}) },
-                ...(moving ? { parent: p.parent!, order: nextOrder(p.parent!) } : {}),
+                ...(moving ? { parent: p.parent!, order: nextOrder(p.parent!) } : p.order !== undefined ? { order: p.order } : {}),
               }
               room.nodes.set(n.id, next)
               patched.push(next)
             }
             yield* store.upsert(roomId, [...moved, ...committed, ...patched], draft.edges)
+            if (removedIds.length) {
+              yield* store.remove(roomId, removedIds, removedEdges)
+              yield* broadcast(room, new NodesRemoved({ ids: removedIds, edgeIds: removedEdges }))
+            }
             if (unlinked.length) {
               yield* store.remove(roomId, [], unlinked)
               yield* broadcast(room, new NodesRemoved({ ids: [], edgeIds: unlinked }))

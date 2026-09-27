@@ -38,7 +38,17 @@ type Gesture =
   | { kind: "none" }
   | { kind: "pan"; startCam: Camera; start: Point; moved: boolean }
   /** Moving one or more selected elements together. */
-  | { kind: "drag"; clicked: string; ids: string[]; start: Point; origins: Map<string, Point>; moved: boolean; shift: boolean }
+  | {
+      kind: "drag"
+      clicked: string
+      /** The innermost committed element under the pointer: a click targets it. */
+      hit: string
+      ids: string[]
+      start: Point
+      origins: Map<string, Point>
+      moved: boolean
+      shift: boolean
+    }
   /** Rubber-band selection on empty canvas. */
   | { kind: "marquee"; start: Point; base: ReadonlySet<string>; moved: boolean }
   | { kind: "pinch"; start: { cam: Camera; a: Point; b: Point } }
@@ -77,6 +87,11 @@ export function Board({ roomId, identity }: { roomId: string; identity: Identity
   cam.current = camera
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
   const [exporting, setExporting] = useState(false)
+  /** The element this person clicked (any depth): what they type edits it. */
+  const [target, setTarget] = useState<string | null>(null)
+  useEffect(() => {
+    if (target && !state.nodes.has(target)) setTarget(null)
+  }, [target, state.nodes])
   const [marquee, setMarquee] = useState<Rect | null>(null)
   const [highlight, setHighlight] = useState<string | null>(null)
   /** Elements being dragged follow the pointer locally; everyone else gets per-frame updates. */
@@ -127,6 +142,14 @@ export function Board({ roomId, identity }: { roomId: string; identity: Identity
   useEffect(() => {
     if ([...selected].some((id) => !state.nodes.has(id))) setSelected(new Set([...selected].filter((id) => state.nodes.has(id))))
   }, [selected, state.nodes])
+
+  /** The target and its ancestors, outermost first: the breadcrumb in the input box. */
+  const targetPath = (id: string | null) => {
+    const path: Array<{ id: string; label: string }> = []
+    for (let n = id ? state.nodes.get(id) : undefined, hops = 0; n && hops < 16; n = n.parent ? state.nodes.get(n.parent) : undefined, hops++)
+      path.unshift({ id: n.id, label: n.label })
+    return path
+  }
 
   const deleteSelected = () => {
     for (const id of selected) send(new DeleteNode({ id }))
@@ -179,11 +202,18 @@ export function Board({ roomId, identity }: { roomId: string; identity: Identity
         document.getElementById("board-input")?.focus()
         return
       }
+      if (e.key === "Escape" && selected.size === 0) {
+        setTarget(null)
+        return
+      }
       if (selected.size === 0) return
       if (e.key === "Delete" || e.key === "Backspace") {
         e.preventDefault()
         deleteSelected()
-      } else if (e.key === "Escape") setSelected(new Set())
+      } else if (e.key === "Escape") {
+        setSelected(new Set())
+        setTarget(null)
+      }
     }
     const onKeyUp = (e: KeyboardEvent) => {
       if (e.key === " ") setSpaceHeld(false)
@@ -253,7 +283,16 @@ export function Board({ roomId, identity }: { roomId: string; identity: Identity
         const n = state.nodes.get(id)
         if (n && n.parent === null) origins.set(id, state.displaced.get(id) ?? { x: n.x, y: n.y })
       }
-      gesture.current = { kind: "drag", clicked: node.id, ids, start, origins, moved: false, shift: e.shiftKey }
+      // Exactly the element under the pointer, however deep (not a draft).
+      let hit = node.id
+      for (let el = (e.target as Element | null)?.closest("[data-node-id]"); el; el = el.parentElement?.closest("[data-node-id]") ?? null) {
+        const id = el.getAttribute("data-node-id")
+        if (id && state.nodes.has(id)) {
+          hit = id
+          break
+        }
+      }
+      gesture.current = { kind: "drag", clicked: node.id, hit, ids, start, origins, moved: false, shift: e.shiftKey }
     } else if (panning) {
       gesture.current = { kind: "pan", startCam: cam.current, start, moved: false }
     } else {
@@ -303,11 +342,18 @@ export function Board({ roomId, identity }: { roomId: string; identity: Identity
           if (next.has(g.clicked)) next.delete(g.clicked)
           else next.add(g.clicked)
           setSelected(next)
-        } else setSelected(new Set([g.clicked]))
+        } else {
+          setSelected(new Set([g.clicked]))
+          setTarget(g.hit)
+        }
       } else if (!selected.has(g.clicked)) setSelected(new Set([g.clicked]))
     } else if (g.kind === "marquee" && !g.moved) {
       if (g.base.size === 0) setSelected(new Set())
-    } else if (g.kind === "pan" && !g.moved) setSelected(new Set())
+      setTarget(null)
+    } else if (g.kind === "pan" && !g.moved) {
+      setSelected(new Set())
+      setTarget(null)
+    }
     setDragPos(null)
     setMarquee(null)
     gesture.current = { kind: "none" }
@@ -336,7 +382,7 @@ export function Board({ roomId, identity }: { roomId: string; identity: Identity
       >
         <EdgeLayer edges={tree.edges} camera={camera} />
         <BoardActions.Provider value={boardActions}>
-        <HighlightContext.Provider value={{ handle: highlight, color }}>
+        <HighlightContext.Provider value={{ handle: highlight, color, target }}>
         <AnimatePresence>
           {tree.roots.map((item) => (
             <RootView
@@ -391,7 +437,9 @@ export function Board({ roomId, identity }: { roomId: string; identity: Identity
         handles={handles}
         suggestions={state.suggestions}
         onHighlight={setHighlight}
-        onChange={(text) => send(new SetInput({ text, anchor: anchor() }))}
+        target={targetPath(target)}
+        onTarget={setTarget}
+        onChange={(text) => send(new SetInput({ text, anchor: anchor(), ...(target ? { target } : {}) }))}
         onCommit={() => send(new Commit())}
         onDiscard={() => send(new Discard())}
       />

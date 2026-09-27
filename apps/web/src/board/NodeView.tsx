@@ -12,7 +12,7 @@ export const LEAF_WIDTH = 240
 const spring = { type: "spring", stiffness: 420, damping: 36 } as const
 
 /** The @handle being pointed at (autocomplete / reference chips): its element glows. */
-export const HighlightContext = createContext<{ handle: string | null; color: string }>({ handle: null, color: "#000" })
+export const HighlightContext = createContext<{ handle: string | null; color: string; target?: string | null }>({ handle: null, color: "#000" })
 
 const isContainer = (n: BoardNode) => REGISTRY[n.type].container
 
@@ -68,7 +68,7 @@ export function RootView(props: {
           {typing}
         </div>
       )}
-      <Frame node={node} draft={draft} root selected={selected}>
+      <Frame node={node} draft={draft} root selected={selected} removing={item.removing}>
         <Body item={item} tree={tree} />
       </Frame>
     </motion.div>
@@ -90,19 +90,21 @@ function ChildView({ item, tree, compact }: { item: Item; tree: Tree; compact: b
       transition={{ duration: 0.16 }}
       className="min-w-0"
     >
-      <Frame node={item.node} draft={item.draft}>
+      <Frame node={item.node} draft={item.draft} removing={item.removing}>
         <Body item={item} tree={tree} compact={compact} />
       </Frame>
     </motion.div>
   )
 }
 
-function Frame(props: { node: BoardNode; draft: boolean; root?: boolean; selected?: boolean; children: ReactNode }) {
+function Frame(props: { node: BoardNode; draft: boolean; root?: boolean; selected?: boolean; removing?: boolean; children: ReactNode }) {
   const { node, draft, root } = props
   const hl = useContext(HighlightContext)
   const actions = useContext(BoardActions)
   const [dropping, setDropping] = useState(false)
   const lit = (hl.handle !== null && node.handle === hl.handle) || dropping
+  /** The element this person clicked: what they type edits it. */
+  const targeted = hl.target === node.id
   // Drop a picture on any committed element: images/heroes take it; anything else gets an image inside.
   const canDrop = !draft && actions !== null
   return (
@@ -128,7 +130,7 @@ function Frame(props: { node: BoardNode; draft: boolean; root?: boolean; selecte
           else actions.dropImage(node.id, src)
         })
       }}
-      className={`frame transition-shadow ${props.selected ? "is-selected" : ""} ${
+      className={`frame transition-shadow ${props.selected ? "is-selected" : ""} ${props.removing ? "is-removing" : ""} ${targeted ? "is-targeted" : ""} ${
         root
           ? "rounded-2xl bg-[var(--panel)] p-3 shadow-[0_1px_2px_rgba(0,0,0,0.04),0_8px_24px_-12px_rgba(0,0,0,0.14)]"
           : "rounded-xl bg-[var(--surface)] p-2.5"
@@ -143,12 +145,19 @@ function Frame(props: { node: BoardNode; draft: boolean; root?: boolean; selecte
               background: `color-mix(in srgb, ${node.props.color} 9%, ${root ? "var(--panel)" : "var(--surface)"})`,
             } as React.CSSProperties)
           : {}),
-        border: draft
+        ...(props.removing ? { opacity: 0.45 } : {}),
+        border: props.removing
+          ? "1.5px dashed #e03131"
+          : draft
           ? `1.5px dashed ${node.authorColor}`
           : node.props.color
             ? `1px solid color-mix(in srgb, ${node.props.color} 55%, transparent)`
             : "1px solid var(--hairline)",
-        ...(lit ? { boxShadow: `0 0 0 3px color-mix(in srgb, ${hl.color} 35%, transparent)` } : {}),
+        ...(targeted
+          ? { boxShadow: `0 0 0 2px ${hl.color}, 0 0 0 6px color-mix(in srgb, ${hl.color} 18%, transparent)` }
+          : lit
+            ? { boxShadow: `0 0 0 3px color-mix(in srgb, ${hl.color} 35%, transparent)` }
+            : {}),
       }}
     >
       {props.children}
@@ -328,7 +337,9 @@ export function Title({ node, showAuthor, compact }: { node: BoardNode; showAuth
   return (
     <>
       <div className="frame-title flex items-center gap-2">
-        <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{node.label}</span>
+        <span title={node.label} className="min-w-0 flex-1 truncate text-[13px] font-medium">
+          {node.label}
+        </span>
         {node.handle && <HandleTag id={node.id} handle={node.handle} />}
         {tag && <span className="frame-type shrink-0 text-[10px] uppercase tracking-wider text-[var(--muted)]">{tag}</span>}
         {canNote && (
