@@ -5,6 +5,8 @@
  */
 import { type EntryGraph, type EntryPatch, REGISTRY } from "@rtw/shared"
 import type { HandleInfo } from "./assemble.ts"
+import { editOf } from "./edits.ts"
+import { explicitColor } from "./modifiers.ts"
 
 const HANDLE = /@[a-z0-9][a-z0-9-]*/i
 /** Media sits inside any element ("add an image" to a hero). */
@@ -109,7 +111,55 @@ export function resolveOnBoard(phrase: string, handles: HandleInfo, exclude: str
 }
 
 /** Split the text into commands on existing parts and a description of new ones. */
+/** "“On the inside…”" → On the inside… (quotes and trailing punctuation off, first letter up). */
+const unquote = (s: string) =>
+  s
+    .trim()
+    .replace(/^["'“”‘’`]+|["'“”‘’`.!]+$/g, "")
+    .trim()
+    .replace(/^./, (c) => c.toUpperCase())
+
+/**
+ * Renaming the target (or a part of it): "change the title from "X" to "Y"",
+ * "rename it to Y", "call it Y", "set the heading to Y", "change the name of
+ * the inner modal to Y", "edit the name to Y".
+ */
+export function renameOf(text: string, target: string, handles: HandleInfo): EntryPatch | null {
+  const t = text.trim()
+  const field = "(?:name|title|label|heading|header|text|caption)"
+  const PRON = /^(?:it|this|that|this one)$/i
+  let whoPhrase: string | undefined
+  let raw: string | undefined
+  // "change / edit / set the title (of X) (from "A") to "B"".
+  const byField = new RegExp(`^(?:please\\s+)?(?:change|edit|set|update|rename|make|switch)\\s+(?:the\\s+|its\\s+)?${field}(?:\\s+of\\s+(.+?))?\\s+(?:to|into|as|from|=)\\s+(.+)$`, "i").exec(t)
+  // "rename / call the username input (to) Handle", "call it Login", "rename to Sign in".
+  const byVerb =
+    /^(?:please\s+)?(?:rename|retitle|relabel|call|name|title|label)\s+(.+?)\s+(?:to|as)\s+(.+)$/i.exec(t) ??
+    /^(?:please\s+)?(?:call|name|title|rename|retitle)\s+(it|this|that|this one)\s+(.+)$/i.exec(t) ??
+    // "rename to Sign in": the empty first group means the target itself.
+    /^(?:please\s+)?(?:rename|retitle|relabel)\s+()(?:to|as)\s+(.+)$/i.exec(t)
+  if (byField) {
+    whoPhrase = byField[1]
+    raw = byField[2]
+  } else if (byVerb) {
+    whoPhrase = byVerb[1]
+    raw = byVerb[2]
+  }
+  if (!raw) return null
+  // The new title is the last quoted text, or whatever follows the final "to" ("from "A" to "B"").
+  const quoted = [...raw.matchAll(/["“'‘]([^"”'’]+)["”'’]/g)].map((q) => q[1]!)
+  const newTitle = quoted.length ? quoted.at(-1)! : (/(?:^|\s)to\s+(.+)$/i.exec(raw)?.[1] ?? raw)
+  const who = whoPhrase && !PRON.test(whoPhrase.trim()) ? resolveIn(whoPhrase, target, handles) : target
+  if (!who) return null
+  const label = unquote(newTitle)
+  if (!label || label.length > 60) return null
+  return { target: who, label }
+}
+
 export function readTargeted(text: string, target: string, handles: HandleInfo): Targeted {
+  // A title change is the whole instruction (the new title may contain "and", "have", …).
+  const renamed = renameOf(text, target, handles)
+  if (renamed) return { patches: [renamed], rest: "", command: true }
   const patches: EntryPatch[] = []
   const rest: string[] = []
   let invents = false
@@ -250,4 +300,52 @@ export function unlinkByName(text: string, handles: HandleInfo, target: string |
   const bs = all ? resolveAllOnBoard(bPhrase, handles, a) : [resolveOnBoard(bPhrase, handles, a)].filter((h): h is string => !!h)
   if (!bs.length) return null
   return bs.map((b) => ({ target: a, unlink: b }))
+}
+
+/**
+ * "remove server1", "delete @hero", "remove server1 and server3", "remove all
+ * servers": existing elements by name, anywhere on the board. Null when a name
+ * matches nothing (then nothing is removed, and nothing new is made from it).
+ */
+export function removeByName(text: string, handles: HandleInfo): EntryPatch[] | null {
+  const m = /^(?:please\s+)?(?:remove|delete|erase|get rid of|take away|trash|ditch|drop)\s+(.+)$/i.exec(text.trim())
+  if (!m) return null
+  const phrase = m[1]!.replace(/\s+(?:from|off)\s+(?:the\s+)?(?:board|canvas|diagram|page)$/i, "").trim()
+  if (/\b(?:links?|arrows?|connections?|edges?|lines?|fields?|inputs?|options?|rows?|items?)\b/i.test(phrase)) return null
+  const all = /^(?:all|every|each)\s+(?:of\s+)?(?:the\s+)?(.+)$/i.exec(phrase)
+  if (all) {
+    const hits = resolveAllOnBoard(all[1]!, handles, null)
+    return hits.length ? hits.map((h) => ({ target: h, remove: true })) : null
+  }
+  const names = phrase.split(/\s*(?:,|\band\b|&)\s*/).filter(Boolean)
+  const found = names.map((n) => resolveOnBoard(n, handles, ""))
+  return found.length && found.every(Boolean) ? found.map((h) => ({ target: h!, remove: true })) : null
+}
+
+/**
+ * "make cta a left sidebar and footer a right sidebar", "turn the hero into a
+ * carousel": existing elements (inside the target first, else anywhere) change
+ * kind in place. Null unless every clause names something that exists.
+ */
+export function retypeByName(text: string, handles: HandleInfo, target: string | null): EntryPatch[] | null {
+  const clauses = text.split(/\s*(?:,|;|\band\b)\s*/).filter(Boolean)
+  const known = new Set(handles.keys())
+  const patches: EntryPatch[] = []
+  let verb: string | null = null
+  for (const c of clauses) {
+    const m = /^(?:(?:please\s+)?(make|turn|change|convert|switch|transform)\s+)?(.+?)\s+(?:(?:into|to)\s+)?(?:a|an)\s+(.+)$/i.exec(c.trim())
+    if (!m) return null
+    verb = m[1] ?? verb
+    // "…and footer a right sidebar" carries the verb over; a clause without any verb isn't a change.
+    if (!verb) return null
+    const name = m[2]!
+    // "make @timer a red clock" is a color change (the color logic reads those), not a new kind.
+    if (explicitColor(m[3]!)) return null
+    const h = (target ? resolveIn(name, target, handles) : null) ?? resolveOnBoard(name, handles, "")
+    if (!h) return null
+    const p = editOf(`turn ${h} into a ${m[3]}`, known)
+    if (!p?.type) return null
+    patches.push(p)
+  }
+  return patches.length ? patches : null
 }

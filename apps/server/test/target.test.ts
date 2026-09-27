@@ -30,7 +30,7 @@ describe("reading text aimed at a clicked element", () => {
   test("'make it red' edits the target; 'rename the subtitle to Tagline' edits the part", () => {
     expect(readTargeted("make it red", "@hero", H).rest).toBe("make @hero red")
     expect(readTargeted("make red", "@hero", H).rest).toBe("make @hero red")
-    expect(readTargeted("rename the subtitle to Tagline", "@landing-page", H).rest).toBe("rename @subtitle to Tagline")
+    expect(readTargeted("rename the subtitle to Tagline", "@landing-page", H).patches).toEqual([{ target: "@subtitle", label: "Tagline" }])
   })
   test("move X above / below Y", () => {
     expect(readTargeted("move the subtitle above the hero", "@landing-page", H).patches).toEqual([{ target: "@subtitle", before: "@hero" }])
@@ -222,4 +222,75 @@ describe("disconnect cuts only the arrow to what you name", () => {
     const g = interpret({ text: "disconnect @in-touch-modal from server 9", handles: S, peek: () => undefined, memory: new Map() })
     expect(g.graph.patches.some((p) => p.unlink === "*")).toBe(false)
   })
+})
+
+describe("remove existing elements by name (no target, no @ needed)", () => {
+  const R = new Map<string, Info>([
+    ["@contact-form", { container: true, type: "form" as never, label: "Contact form", parent: null }],
+    ["@server1", { container: false, type: "service" as never, label: "Server1", parent: null }],
+    ["@server2", { container: false, type: "service" as never, label: "Server2", parent: null }],
+    ["@server3", { container: false, type: "service" as never, label: "Server3", parent: null }],
+  ])
+  const run = async (text: string) => {
+    const { interpret } = await import("../src/engine/index.ts")
+    return interpret({ text, handles: R, peek: () => undefined, memory: new Map() }).graph
+  }
+  test("'remove server1' removes Server1 (never a new 'Remove server1' element)", async () => {
+    const g = await run("remove server1")
+    expect(g.nodes).toEqual([])
+    expect(g.patches).toEqual([{ target: "@server1", remove: true }])
+  })
+  test("several, a tag, all of a kind", async () => {
+    expect((await run("delete server 1 and server 3")).patches).toEqual([
+      { target: "@server1", remove: true },
+      { target: "@server3", remove: true },
+    ])
+    expect((await run("remove @contact-form")).patches).toEqual([{ target: "@contact-form", remove: true }])
+    expect((await run("remove all servers")).patches.map((p) => p.target)).toEqual(["@server1", "@server2", "@server3"])
+  })
+  test("a name that matches nothing removes nothing and makes nothing", async () => {
+    const g = await run("remove server9")
+    expect(g.patches).toEqual([])
+    expect(g.nodes.some((n) => /remove/i.test(n.label))).toBe(false)
+  })
+})
+
+test("'make cta a left sidebar and footer a right sidebar' changes both in place, never a new element", async () => {
+  const { interpret } = await import("../src/engine/index.ts")
+  const P = new Map<string, Info>([
+    ["@blank-page", { container: true, type: "section" as never, label: "Blank page", parent: null }],
+    ["@cta", { container: false, type: "button" as never, label: "Cta", parent: "@blank-page" }],
+    ["@footer", { container: true, type: "section" as never, label: "Footer", parent: "@blank-page" }],
+  ])
+  for (const target of [null, "@blank-page"]) {
+    const g = interpret({ text: "make cta a left sidebar and footer a right sidebar", handles: P, peek: () => undefined, memory: new Map(), target }).graph
+    expect(g.nodes).toEqual([])
+    expect(g.patches).toEqual([
+      { target: "@cta", label: "Left Sidebar", type: "section" },
+      { target: "@footer", label: "Right Sidebar", type: "section" },
+    ])
+  }
+})
+
+test("renaming the targeted element (or a part of it), quotes or not", async () => {
+  const { interpret } = await import("../src/engine/index.ts")
+  const M = new Map<string, Info>([
+    ["@in-touch-modal", { container: true, type: "modal" as never, label: "In touch modal", parent: null }],
+    ["@inner", { container: true, type: "modal" as never, label: "On the inside just have a username modal", parent: "@in-touch-modal" }],
+    ["@username-input", { container: false, type: "input" as never, label: "Username input only", parent: "@inner" }],
+  ])
+  const run = (text: string, target: string) => interpret({ text, handles: M, peek: () => undefined, memory: new Map(), target }).graph
+  for (const [text, target, patch] of [
+    ['edit the name to title from "On the inside just have a username modal" to "username"', "@inner", { target: "@inner", label: "Username" }],
+    ["rename it to Sign in", "@inner", { target: "@inner", label: "Sign in" }],
+    ["rename to Sign in", "@inner", { target: "@inner", label: "Sign in" }],
+    ["call it Login", "@inner", { target: "@inner", label: "Login" }],
+    ["set the heading to Welcome back", "@inner", { target: "@inner", label: "Welcome back" }],
+    ["change the name of the username input to Email", "@in-touch-modal", { target: "@username-input", label: "Email" }],
+    ["rename the username input to Handle", "@in-touch-modal", { target: "@username-input", label: "Handle" }],
+  ] as const) {
+    const g = run(text, target)
+    expect(g.nodes).toEqual([])
+    expect(g.patches).toEqual([patch])
+  }
 })

@@ -255,8 +255,9 @@ function Body({ item, tree, compact = false }: { item: Item; tree: Tree; compact
         <div className="mt-2.5 flex flex-col gap-2">
           {column(sided.top)}
           <div className="flex items-stretch gap-2">
-            <div className="w-[34%] shrink-0 [&>*]:h-full">{column([sided.side], true)}</div>
-            <div className="flex min-w-0 flex-1 flex-col gap-2">{column(sided.main)}</div>
+            {sided.left && <div className={`${sided.right ? "w-[28%]" : "w-[34%]"} shrink-0 [&>*]:h-full`}>{column([sided.left], true)}</div>}
+            {sided.main.length > 0 && <div className="flex min-w-0 flex-1 flex-col gap-2">{column(sided.main)}</div>}
+            {sided.right && <div className={`${sided.left ? "w-[28%]" : "w-[34%]"} shrink-0 [&>*]:h-full`}>{column([sided.right], true)}</div>}
           </div>
           {column(sided.bottom)}
         </div>

@@ -824,11 +824,14 @@ export function EmptySection({ node }: { node: BoardNode }) {
  * the main column, the footer across the bottom. Null when there's no sidebar.
  */
 export function sidebarLayout<T extends { node: BoardNode }>(kids: readonly T[]) {
-  const side = kids.find((k) => SIDEBAR.test(k.node.label))
-  if (!side || kids.length < 2) return null
-  const at = kids.indexOf(side)
-  const top = kids.filter((k, i) => i < at && (k.node.type === "navbar" || /\b(header|top\s*bar|nav\s*bar)\b/i.test(k.node.label)))
-  const bottom = kids.filter((k) => k !== side && FOOTER.test(k.node.label))
-  const main = kids.filter((k) => k !== side && !top.includes(k) && !bottom.includes(k))
-  return { top, side, main, bottom }
+  const sides = kids.filter((k) => SIDEBAR.test(k.node.label))
+  if (!sides.length || kids.length < 2) return null
+  // "right sidebar" sits on the right; any other sidebar on the left.
+  const right = sides.find((k) => /\bright\b/i.test(k.node.label)) ?? null
+  const left = sides.find((k) => k !== right) ?? null
+  const first = kids.indexOf(sides[0]!)
+  const top = kids.filter((k, i) => i < first && (k.node.type === "navbar" || /\b(header|top\s*bar|nav\s*bar)\b/i.test(k.node.label)))
+  const bottom = kids.filter((k) => !sides.includes(k) && FOOTER.test(k.node.label))
+  const main = kids.filter((k) => !sides.includes(k) && !top.includes(k) && !bottom.includes(k))
+  return { top, left, right, main, bottom }
 }
