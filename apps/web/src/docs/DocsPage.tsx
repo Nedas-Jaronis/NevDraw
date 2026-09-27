@@ -109,7 +109,7 @@ export function DocsPage() {
             <p>Three things happen as you type:</p>
             <Dl
               items={[
-                ["Instantly", "Your words turn into a dashed draft that everyone can see, so the room follows your thinking live."],
+                ["Instantly", "Your words turn into a dashed draft that only you can see, so you can shape it before anyone else does."],
                 [
                   "On a pause",
                   "An AI re-reads the whole sentence and fixes names, types, nesting and arrows. The draft updates in place.",
@@ -173,7 +173,7 @@ export function DocsPage() {
             <H3>One idea per Enter</H3>
             <p>
               Build in steps rather than one huge sentence: first the page, then its sections, then the details. Each step is easy
-              to read, easy to fix, and everyone can follow along.
+              to read, easy to fix, and your teammates see each finished piece land.
             </p>
 
             <H3>Point at what exists with @</H3>
@@ -243,7 +243,10 @@ export function DocsPage() {
 
           <Section id="together" title="Working together">
             <ul className="flex list-disc flex-col gap-1.5 pl-5 marker:text-[var(--muted)]">
-              <li>Everyone types in their own box. Drafts show in each person's color as they type.</li>
+              <li>
+                Everyone types in their own box. Your draft is private until you press Enter; then it appears for everyone, in
+                your color.
+              </li>
               <li>The menu (top left) has this board's link and a QR code for phones.</li>
               <li>
                 To invite people outside your network, click your avatar (top right) and choose <em>Go remote</em>. You get a

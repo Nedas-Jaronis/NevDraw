@@ -180,8 +180,8 @@ test("after a pause the LLM refines the draft, keeping reused keys' elements", a
   const a = await join("Ada")
   const b = await join("Bo")
   a.send(new SetInput({ text: TEXT, anchor }))
-  const instant = await b.waitFor(is("DraftUpdated"))
-  const refined = await b.waitFor(is("DraftUpdated", (m) => m.draft.edges.some((e) => e.kind === "publishes")))
+  const instant = await a.waitFor(is("DraftUpdated"))
+  const refined = await a.waitFor(is("DraftUpdated", (m) => m.draft.edges.some((e) => e.kind === "publishes")))
   expect(refined.draft.nodes.map((n) => n.label)).toEqual(["Checkout", "Stripe", "Email queue"])
   expect(refined.draft.nodes[0]!.id).toBe(instant.draft.nodes[0]!.id) // p0 reused → same element morphs
 })
