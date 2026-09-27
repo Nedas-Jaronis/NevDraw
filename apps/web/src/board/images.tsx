@@ -74,6 +74,7 @@ export function ImageSlot(props: { id: string; src: string | undefined; editable
       {editable && (
         <div
           data-ui
+          data-export-hide
           className={`absolute right-1.5 top-1.5 flex gap-1 transition-opacity ${props.src ? "opacity-0 group-hover/img:opacity-100" : "opacity-90"}`}
         >
           <button
