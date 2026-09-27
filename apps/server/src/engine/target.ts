@@ -7,6 +7,7 @@ import { type EntryGraph, type EntryPatch, REGISTRY } from "@rtw/shared"
 import type { HandleInfo } from "./assemble.ts"
 import { editOf } from "./edits.ts"
 import { explicitColor } from "./modifiers.ts"
+import { classifyKeywords } from "../classify/keywords.ts"
 
 const HANDLE = /@[a-z0-9][a-z0-9-]*/i
 /** Media sits inside any element ("add an image" to a hero). */
@@ -106,7 +107,9 @@ export function resolveOnBoard(phrase: string, handles: HandleInfo, exclude: str
     unique(all.filter((h) => label(h) === want)) ??
     unique(all.filter((h) => squash(label(h)) === squash(want) || squash(h.slice(1).replace(/-/g, " ")) === squash(want))) ??
     unique(all.filter((h) => h.slice(1).replace(/-/g, " ") === want)) ??
-    unique(all.filter((h) => label(h).replace(/s$/, "") === singular || kind(h) === singular || (singular === "server" && kind(h) === "service")))
+    unique(all.filter((h) => label(h).replace(/s$/, "") === singular || kind(h) === singular || (singular === "server" && kind(h) === "service"))) ??
+    // "cta" → "Cta button", when it's the only one that says so.
+    unique(all.filter((h) => ` ${label(h)} `.includes(` ${want} `)))
   )
 }
 
@@ -328,26 +331,63 @@ export function removeByName(text: string, handles: HandleInfo): EntryPatch[] | 
  * kind in place. Null unless every clause names something that exists.
  */
 export function retypeByName(text: string, handles: HandleInfo, target: string | null): EntryPatch[] | null {
-  const clauses = text.split(/\s*(?:,|;|\band\b)\s*/).filter(Boolean)
   const known = new Set(handles.keys())
-  const patches: EntryPatch[] = []
-  let verb: string | null = null
-  for (const c of clauses) {
-    const m = /^(?:(?:please\s+)?(make|turn|change|convert|switch|transform)\s+)?(.+?)\s+(?:(?:into|to)\s+)?(?:a|an)\s+(.+)$/i.exec(c.trim())
-    if (!m) return null
-    verb = m[1] ?? verb
-    // "…and footer a right sidebar" carries the verb over; a clause without any verb isn't a change.
-    if (!verb) return null
-    const name = m[2]!
-    // "make @timer a red clock" is a color change (the color logic reads those), not a new kind.
-    if (explicitColor(m[3]!)) return null
-    const h = (target ? resolveIn(name, target, handles) : null) ?? resolveOnBoard(name, handles, "")
-    if (!h) return null
-    const p = editOf(`turn ${h} into a ${m[3]}`, known)
-    if (!p?.type) return null
-    patches.push(p)
+  const find = (name: string) => (target ? resolveIn(name, target, handles) : null) ?? resolveOnBoard(name, handles, "")
+  const change = (h: string, raw: string) => {
+    // "leftsidebar" → "left sidebar".
+    const kind = raw.replace(/\b(left|right|top|bottom)(side\s*bar|side\s*nav|nav\s*bar|bar|nav)\b/i, "$1 $2")
+    if (explicitColor(kind)) return null
+    const p = editOf(`turn ${h} into a ${kind}`, known)
+    return p?.type ? p : null
   }
-  return patches.length ? patches : null
+  // Later statements refine earlier ones ("make both sidebars, hero is a left sidebar").
+  const out = new Map<string, EntryPatch>()
+  let verb: string | null = null
+  const segments = text
+    .split(/\s*[;.]\s*|\s*,\s*(?=\S)/)
+    // "hero is a left sidebar and cta is a right sidebar": two statements.
+    .flatMap((x) => x.split(/\s+and\s+(?=(?:the\s+)?@?[\w-]+(?:\s+[\w-]+)?\s+(?:is|becomes|should be|will be)\b)/i))
+    .filter(Boolean)
+  for (const segment of segments) {
+    const seg = segment.trim().replace(/^(?:and|then|also)\s+/i, "")
+    // "hero is a left sidebar", "the cta should be a right sidebar".
+    const is = /^(?:the\s+)?(.+?)\s+(?:is|becomes|should be|will be|as|=)\s+(?:a|an|the)?\s*(.+)$/i.exec(seg)
+    if (is && !/^(?:make|turn|change|convert|switch|transform)\b/i.test(seg)) {
+      const h = find(is[1]!)
+      const p = h ? change(h, is[2]!) : null
+      if (!p) return null
+      out.set(p.target, p)
+      continue
+    }
+    // "make @hero and @cta sidebars": the same kind for all of them.
+    const group = /^(?:please\s+)?(make|turn|change|convert|switch|transform)\s+(.+?\s+(?:and|&)\s+.+?)\s+(?:(?:into|to)\s+)?(?:(?:a|an)\s+)?([a-z][a-z\s-]*?s)$/i.exec(seg)
+    if (group) {
+      const names = group[2]!.split(/\s*(?:,|\band\b|&)\s*/).filter(Boolean)
+      const hs = names.map(find)
+      const kind = group[3]!.replace(/s$/i, "")
+      if (hs.every(Boolean)) {
+        for (const h of hs) {
+          const p = change(h!, kind)
+          if (!p) return null
+          if (!out.has(p.target)) out.set(p.target, p)
+        }
+        verb = group[1]!
+        continue
+      }
+    }
+    // "make cta a left sidebar and footer a right sidebar".
+    for (const c of seg.split(/\s*\band\b\s*/).filter(Boolean)) {
+      const m = /^(?:(?:please\s+)?(make|turn|change|convert|switch|transform)\s+)?(.+?)\s+(?:(?:into|to)\s+)?(?:a|an)\s+(.+)$/i.exec(c.trim())
+      if (!m) return null
+      verb = m[1] ?? verb
+      if (!verb) return null
+      const h = find(m[2]!)
+      const p = h ? change(h, m[3]!) : null
+      if (!p) return null
+      out.set(p.target, p)
+    }
+  }
+  return out.size ? [...out.values()] : null
 }
 
 const COLUMNS = /\b(?:(?:2|two)[-\s]?col(?:umn)?s?|side[-\s]by[-\s]side|columns|in a row)\b/i
@@ -361,7 +401,7 @@ export function columnsOf(
   text: string,
   handles: HandleInfo,
   target: string | null,
-): { row: EntryGraph["nodes"][number]; patches: EntryPatch[] } | null {
+): { nodes: EntryGraph["nodes"][number][]; patches: EntryPatch[] } | null {
   if (!COLUMNS.test(text)) return null
   const m = /^(?:please\s+)?(?:turn|put|make|arrange|place|lay out|set|split|have)\s+(?:the\s+)?(.+?)\s+(?:and|&)\s+(?:the\s+)?(.+?)\s+(?:into|in|as|side|on)\b/i.exec(text.trim())
   if (!m) return null
@@ -378,10 +418,91 @@ export function columnsOf(
   }
   if (on(left, "right") || on(right, "left")) [left, right] = [right, left]
   return {
-    row: { key: "columns", type: "section", label: "Two columns", parent, props: { layout: "row" }, before: left },
+    nodes: columnRow(2, parent, left),
     patches: [
-      { target: left, parent: "columns" },
-      { target: right, parent: "columns" },
+      { target: left, parent: "columns.0" },
+      { target: right, parent: "columns.1" },
     ],
   }
+}
+
+const COLUMN_NAMES = { 2: ["Left column", "Right column"], 3: ["Left column", "Middle column", "Right column"] } as const
+
+/** A row of named column slots ("Left column", "Right column") people can put things in. */
+function columnRow(n: 2 | 3, parent: string | null, before?: string): EntryGraph["nodes"][number][] {
+  return [
+    { key: "columns", type: "section", label: `${n === 2 ? "Two" : "Three"} columns`, parent, props: { layout: "row" }, ...(before ? { before } : {}) },
+    ...COLUMN_NAMES[n].map((label, i) => ({ key: `columns.${i}`, type: "section" as const, label, parent: "columns", props: {} })),
+  ]
+}
+
+/**
+ * "a 2 column layout", "add a 3 column layout with the hero on the left and a
+ * pricing table on the right": a row of named columns; parts named for a side
+ * go in that column (existing ones move, new ones are made there).
+ */
+export function columnLayoutOf(
+  text: string,
+  handles: HandleInfo,
+  target: string | null,
+): { nodes: EntryGraph["nodes"][number][]; patches: EntryPatch[] } | null {
+  const m = /^(?:please\s+)?(?:(?:add|create|make|give me|insert|put)\s+)?(?:a|an)?\s*(2|two|3|three)[-\s]?col(?:umn)?s?(?:\s+(?:layout|row|grid|section))?(?:\s+(?:with|where|and)\s+(.+))?$/i.exec(text.trim())
+  if (!m) return null
+  const n = /3|three/i.test(m[1]!) ? 3 : 2
+  const parent = target && handles.get(target)?.container ? target : null
+  const nodes = columnRow(n, parent)
+  const patches: EntryPatch[] = []
+  const sides = n === 2 ? { left: 0, right: 1 } : { left: 0, middle: 1, center: 1, right: 2 }
+  for (const part of (m[2] ?? "").split(/\s*(?:,|;|\band\b)\s*/).filter(Boolean)) {
+    const pm = /^(?:the\s+)?(.+?)\s+(?:on|in|at|to|goes (?:on|in|to))\s+(?:the\s+)?(left|right|middle|center)(?:\s+(?:column|side))?$/i.exec(part.trim())
+    if (!pm) return null
+    const slot = (sides as Record<string, number>)[pm[2]!.toLowerCase()]
+    if (slot === undefined) return null
+    const existing = (target ? resolveIn(pm[1]!, target, handles) : null) ?? resolveOnBoard(pm[1]!, handles, "")
+    if (existing) patches.push({ target: existing, parent: `columns.${slot}` })
+    else {
+      // Something new: named and typed from its words, made in its column.
+      const name = pm[1]!.replace(/^(?:a|an|the)\s+/i, "").trim()
+      const type = classifyKeywords(name).type
+      nodes.push({ key: `columns.${slot}.new${nodes.length}`, type, label: name.replace(/^./, (c) => c.toUpperCase()), parent: `columns.${slot}`, props: {} })
+    }
+  }
+  return { nodes, patches }
+}
+
+/**
+ * "move @hero after the footer", "put the cta before @footer", "move the
+ * footer to the end": reorder an existing element among its siblings, by tag
+ * or name, anywhere. The second name is looked for among its siblings first.
+ * Null (and nothing made) unless both are found.
+ */
+export function moveByName(text: string, handles: HandleInfo, intoOnly = false): EntryPatch[] | null {
+  // "put the hero in the left column", "move @cta into the footer", "the cta goes in the right column".
+  const into =
+    /^(?:please\s+)?(?:move|put|place|shift|drag)\s+(?:the\s+)?(.+?)\s+(?:in|into|inside|within|to)\s+(?:the\s+)?(.+)$/i.exec(text.trim()) ??
+    /^(?:the\s+)?(.+?)\s+(?:goes|should go|belongs)\s+(?:in|into|inside|to)\s+(?:the\s+)?(.+)$/i.exec(text.trim())
+  if (into && !/^(?:the\s+)?(?:top|bottom|end|start|beginning)$/i.test(into[2]!.trim())) {
+    const what = resolveOnBoard(into[1]!, handles, "")
+    const where = resolveOnBoard(into[2]!, handles, what ?? "")
+    if (what && where && handles.get(where)?.container) return [{ target: what, parent: where }]
+  }
+  if (intoOnly) return null
+  const m =
+    /^(?:please\s+)?(?:move|put|place|shift|drag|position)\s+(?:the\s+)?(.+?)\s+(before|after|above|below|under|beneath|over|to the (?:very )?(?:top|start|bottom|end)|at the (?:very )?(?:top|start|beginning|bottom|end)|first|last|up|down)(?:\s+(?:the\s+)?(.+))?$/i.exec(
+      text.trim(),
+    )
+  if (!m) return null
+  const what = resolveOnBoard(m[1]!, handles, "")
+  if (!what) return null
+  const where = m[2]!.toLowerCase()
+  if (/top|start|beginning|first/.test(where)) return [{ target: what, before: "$top" }]
+  if (/bottom|end|last/.test(where)) return [{ target: what, after: "$bottom" }]
+  if (where === "up" && !m[3]) return [{ target: what, before: "$prev" }]
+  if (where === "down" && !m[3]) return [{ target: what, after: "$next" }]
+  if (!m[3]) return null
+  const parent = handles.get(what)?.parent ?? null
+  const siblings = new Map([...handles].filter(([h, i]) => h !== what && (i.parent ?? null) === parent))
+  const other = resolveOnBoard(m[3], siblings, what) ?? resolveOnBoard(m[3], handles, what)
+  if (!other) return null
+  return /before|above|over/.test(where) ? [{ target: what, before: other }] : [{ target: what, after: other }]
 }

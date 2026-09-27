@@ -17,7 +17,7 @@ export const FORM_KINDS: ReadonlyArray<{ test: RegExp; title: string; sub: strin
 export const formKindOf = (label: string) => FORM_KINDS.find((k) => k.test.test(label))
 
 /** "Sidebar", "side nav", "left menu": the column beside a page's content. */
-export const SIDEBAR_RE = /\b(side\s*bar|side\s*nav|side\s*menu|nav(?:igation)?\s*(?:panel|rail|drawer)|left\s*(?:menu|nav|panel)|drawer)\b/i
+export const SIDEBAR_RE = /(side\s*bar|side\s*nav|side\s*menu|nav(?:igation)?\s*(?:panel|rail|drawer)|left\s*(?:menu|nav|panel)|drawer)\b/i
 export const FOOTER_RE = /\bfooter\b/i
 
 /**

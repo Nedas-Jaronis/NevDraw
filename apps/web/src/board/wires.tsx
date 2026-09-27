@@ -827,7 +827,7 @@ export function sidebarLayout<T extends { node: BoardNode }>(kids: readonly T[])
   const sides = kids.filter((k) => SIDEBAR.test(k.node.label))
   if (!sides.length || kids.length < 2) return null
   // "right sidebar" sits on the right; any other sidebar on the left.
-  const right = sides.find((k) => /\bright\b/i.test(k.node.label)) ?? null
+  const right = sides.find((k) => /right/i.test(k.node.label)) ?? null
   const left = sides.find((k) => k !== right) ?? null
   const first = kids.indexOf(sides[0]!)
   const top = kids.filter((k, i) => i < first && (k.node.type === "navbar" || /\b(header|top\s*bar|nav\s*bar)\b/i.test(k.node.label)))

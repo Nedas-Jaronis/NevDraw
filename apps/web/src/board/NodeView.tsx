@@ -8,6 +8,31 @@ import { EmptySection, FormCard, sidebarLayout, Wire } from "./wires.tsx"
 
 export const CONTAINER_WIDTH = 320
 export const LEAF_WIDTH = 240
+/** How wide one column of content needs to be to stay readable. */
+const COLUMN_WIDTH = 230
+
+/**
+ * How many columns sit side by side at the widest point inside an element:
+ * a row / grid adds its children up, a page with sidebars adds the sidebars
+ * to its main column; everything else is as wide as its widest child.
+ */
+function span(item: Item, tree: Tree, depth = 0): number {
+  const kids = tree.children.get(item.node.id) ?? []
+  if (!kids.length || depth > 8) return 1
+  const each = kids.map((k) => span(k, tree, depth + 1))
+  const layout = item.node.props.layout ?? "stack"
+  if (layout === "row") return each.reduce((a, b) => a + b, 0)
+  if (layout === "grid") return Math.max(2, Math.max(...each)) // two per row
+  const sided = sidebarLayout(kids)
+  if (sided) {
+    const main = sided.main.length ? Math.max(...sided.main.map((k) => span(k, tree, depth + 1))) : 0
+    return (sided.left ? 1 : 0) + (sided.right ? 1 : 0) + main
+  }
+  return Math.max(...each)
+}
+
+/** A container grows with what it holds side by side, so nested columns stay readable. */
+const containerWidth = (item: Item, tree: Tree) => Math.min(960, Math.max(CONTAINER_WIDTH, span(item, tree) * COLUMN_WIDTH))
 
 const spring = { type: "spring", stiffness: 420, damping: 36 } as const
 
@@ -44,7 +69,7 @@ export function RootView(props: {
       // The dragger's own element tracks the pointer exactly; everyone else's glides.
       transition={dragging ? { duration: 0 } : spring}
       className={`absolute left-0 top-0 ${draft ? "" : "cursor-grab active:cursor-grabbing"}`}
-      style={{ width: isContainer(node) ? CONTAINER_WIDTH : LEAF_WIDTH, // Drafts always sit on top of committed elements, so you can see what you're making.
+      style={{ width: isContainer(node) ? containerWidth(item, tree) : LEAF_WIDTH, // Drafts always sit on top of committed elements, so you can see what you're making.
         zIndex: draft ? 20 : dragging || selected ? 10 : undefined }}
     >
       {selected && (
@@ -255,9 +280,18 @@ function Body({ item, tree, compact = false }: { item: Item; tree: Tree; compact
         <div className="mt-2.5 flex flex-col gap-2">
           {column(sided.top)}
           <div className="flex items-stretch gap-2">
-            {sided.left && <div className={`${sided.right ? "w-[28%]" : "w-[34%]"} shrink-0 [&>*]:h-full`}>{column([sided.left], true)}</div>}
-            {sided.main.length > 0 && <div className="flex min-w-0 flex-1 flex-col gap-2">{column(sided.main)}</div>}
-            {sided.right && <div className={`${sided.left ? "w-[28%]" : "w-[34%]"} shrink-0 [&>*]:h-full`}>{column([sided.right], true)}</div>}
+            {(() => {
+              // Sidebars flank the page's content; with nothing between them they share the row.
+              const flank = sided.main.length > 0
+              const side = flank ? `${sided.left && sided.right ? "w-[28%]" : "w-[34%]"} shrink-0` : "min-w-0 flex-1"
+              return (
+                <>
+                  {sided.left && <div className={`${side} [&>*]:h-full`}>{column([sided.left], flank)}</div>}
+                  {flank && <div className="flex min-w-0 flex-1 flex-col gap-2">{column(sided.main)}</div>}
+                  {sided.right && <div className={`${side} [&>*]:h-full`}>{column([sided.right], flank)}</div>}
+                </>
+              )
+            })()}
           </div>
           {column(sided.bottom)}
         </div>
