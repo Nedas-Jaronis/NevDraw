@@ -190,12 +190,14 @@ export function materialize(input: {
       const fan = source ? (fanOut.get(source.id) ?? 0) : 0
       if (source) fanOut.set(source.id, fan + 1)
       const inFlow = flow.get(n.key)
-      if (before && before.parent === null) {
-        x = before.x
-        y = before.y
-      } else if (inFlow && flowOffset) {
+      // A connected diagram is recomputed as a whole every time (anchored where it started), so
+      // spots from a half-typed version never stack elements on each other.
+      if (inFlow && flowOffset) {
         x = inFlow.x + flowOffset.x
         y = inFlow.y + flowOffset.y
+      } else if (before && before.parent === null) {
+        x = before.x
+        y = before.y
       } else if (source) {
         x = source.x + widthOf(source.type) + ARROW_GAP
         y = source.y + fan * FAN_GAP

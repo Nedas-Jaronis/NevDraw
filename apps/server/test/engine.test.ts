@@ -231,3 +231,29 @@ test("siblings after ',' / 'and' stay siblings even when Jev says each belongs i
   const parentOf = (label: string) => g.nodes.find((n) => n.label === g.nodes.find((m) => m.key === g.nodes.find((x) => x.label === label)?.parent)?.label)?.label
   for (const part of ["Navbar", "Hero", "Pricing cards", "Footer"]) expect(parentOf(part)).toBe("Landing page")
 })
+
+test("typing a diagram out ends in the same tidy layout as pasting it (no overlaps from half-typed drafts)", async () => {
+  const { startServer, TestClient, is } = await import("./helpers.ts")
+  const { Join, SetInput } = await import("@rtw/shared")
+  const server = await startServer()
+  const c = await TestClient.connect(server.url, "typed")
+  c.send(new Join({ name: "Ada", color: "#e11d48" }))
+  await c.waitFor(is("Welcome"))
+  const full = "5 servers -> 2 load balancers -> 5 databases"
+  let last: { label: string; x: number; y: number }[] = []
+  for (let i = 3; i <= full.length; i += 2) {
+    c.send(new SetInput({ text: full.slice(0, i), anchor: { x: 0, y: 0 } }))
+    await Bun.sleep(15)
+  }
+  c.send(new SetInput({ text: full, anchor: { x: 0, y: 0 } }))
+  await Bun.sleep(300)
+  const d = c.received.filter((m) => m._tag === "DraftUpdated").at(-1) as unknown as { draft: { nodes: typeof last } }
+  last = d.draft.nodes
+  const spots = new Set(last.map((n) => `${n.x},${n.y}`))
+  expect(last.length).toBe(12)
+  expect(spots.size).toBe(12)
+  // Three columns: servers, load balancers, databases.
+  expect(new Set(last.map((n) => n.x)).size).toBe(3)
+  c.close()
+  await server.stop()
+})
