@@ -112,7 +112,7 @@ export function HelpButton() {
                   </Li>
                   <Li>Drop a picture on any element, or use Upload / Link on images and heroes.</Li>
                   <Li>The note icon on an element opens a note for your team. Click it again to minimize.</Li>
-                  <Li>Share (top right) shows a QR code so phones can join the same board.</Li>
+                  <Li>Share (top left) shows a QR code so phones can join the same board, and exports it as PNG or PDF.</Li>
                 </ul>
               </Section>
             </div>
