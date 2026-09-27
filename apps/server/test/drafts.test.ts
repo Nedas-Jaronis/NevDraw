@@ -165,3 +165,29 @@ test("a nested entry arrives as a page draft with its children linked in order",
   const committed = await b.c.waitFor(is("NodesCommitted"))
   expect(committed.nodes.map((n) => n.id)).toEqual(draft.nodes.map((n) => n.id))
 })
+
+test("others see only that someone is typing, never the draft; it stops on Enter or clear", async () => {
+  const s = await boot()
+  const a = await join(s.url, "r", "Ada")
+  const b = await join(s.url, "r", "Bo")
+  a.c.send(new SetInput({ text: "p", anchor }))
+  a.c.send(new SetInput({ text: "postgres", anchor }))
+  await b.c.waitFor(is("UserTyping", (m) => m.id === a.selfId && m.typing))
+  // Once per burst of typing, not per keystroke.
+  await a.c.waitFor(is("DraftUpdated", (m) => m.draft.text === "postgres"))
+  expect(b.c.received.filter((m) => m._tag === "UserTyping")).toHaveLength(1)
+  a.c.send(new Commit())
+  await b.c.waitFor(is("UserTyping", (m) => m.id === a.selfId && !m.typing))
+  await b.c.waitFor(is("NodesCommitted"))
+  expect(b.c.received.some((m) => m._tag === "DraftUpdated")).toBe(false)
+
+  a.c.send(new SetInput({ text: "cache", anchor }))
+  await b.c.waitFor(is("UserTyping", (m) => m.typing && b.c.received.filter((x) => x._tag === "UserTyping").length === 3))
+  a.c.send(new SetInput({ text: "", anchor }))
+  await b.c.waitFor(is("UserTyping", (m) => !m.typing && b.c.received.filter((x) => x._tag === "UserTyping").length === 4))
+  // A newcomer sees who's typing in the welcome.
+  a.c.send(new SetInput({ text: "queue", anchor }))
+  await a.c.waitFor(is("DraftUpdated", (m) => m.draft.text === "queue"))
+  const c = await join(s.url, "r", "Cy")
+  expect(c.welcome.users.find((u) => u.id === a.selfId)?.typing).toBe(true)
+})

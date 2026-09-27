@@ -3,8 +3,8 @@ import { CursorMoved, DraftCleared, DraftUpdated, NodesCommitted, UserJoined, Us
 import { expect, test } from "bun:test"
 import { applyServerMessage, initialRoomState } from "./state.ts"
 
-const ada = { id: "a", name: "Ada", color: "#e11d48", cursor: null }
-const bo = { id: "b", name: "Bo", color: "#2563eb", cursor: null }
+const ada = { id: "a", name: "Ada", color: "#e11d48", cursor: null, typing: false }
+const bo = { id: "b", name: "Bo", color: "#2563eb", cursor: null, typing: false }
 const node = (id: string): BoardNode => ({
   id,
   type: "page",

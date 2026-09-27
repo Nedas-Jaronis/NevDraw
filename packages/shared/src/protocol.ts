@@ -11,6 +11,8 @@ export const User = Schema.Struct({
   name: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(40)),
   color: Schema.String,
   cursor: Schema.NullOr(Point),
+  /** Typing in their box right now (their draft itself stays private). */
+  typing: Schema.optionalWith(Schema.Boolean, { default: () => false }),
 })
 export type User = typeof User.Type
 
@@ -102,6 +104,12 @@ export class UserJoined extends Schema.TaggedClass<UserJoined>()("UserJoined", {
 
 export class UserLeft extends Schema.TaggedClass<UserLeft>()("UserLeft", { id: Schema.String }) {}
 
+/** Someone started or stopped typing: presence only, never the draft. */
+export class UserTyping extends Schema.TaggedClass<UserTyping>()("UserTyping", {
+  id: Schema.String,
+  typing: Schema.Boolean,
+}) {}
+
 export class CursorMoved extends Schema.TaggedClass<CursorMoved>()("CursorMoved", {
   id: Schema.String,
   cursor: Schema.NullOr(Point),
@@ -157,6 +165,7 @@ export const ServerMessage = Schema.Union(
   Welcome,
   UserJoined,
   UserLeft,
+  UserTyping,
   CursorMoved,
   DraftUpdated,
   DraftCleared,

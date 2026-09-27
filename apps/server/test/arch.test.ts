@@ -64,7 +64,7 @@ describe("relation verbs", () => {
 })
 
 describe("placement near what it connects to", () => {
-  const user = { id: "u", name: "A", color: "#000", cursor: null }
+  const user = { id: "u", name: "A", color: "#000", cursor: null, typing: false }
   let n = 0
   const newId = () => `id${++n}`
 

@@ -449,6 +449,12 @@ function RemoteCursor({ user, at }: { user: User; at: Point }) {
         style={{ background: user.color }}
       >
         {user.name}
+        {/* Presence only, like Excalidraw's cursor tags: their draft stays private until Enter. */}
+        {user.typing && (
+          <span className="ml-1.5 font-normal opacity-90">
+            typing<TypingDots />
+          </span>
+        )}
       </span>
     </div>
   )
@@ -460,5 +466,16 @@ function TopBar(props: { roomId: string; users: User[]; selfId: string | null; s
       <SideMenu roomId={props.roomId} status={props.status} onExport={props.onExport} />
       <ProfileMenu users={props.users} selfId={props.selfId} roomId={props.roomId} />
     </div>
+  )
+}
+
+/** Three dots that pulse in turn. */
+export function TypingDots() {
+  return (
+    <span aria-hidden className="ml-0.5 inline-flex gap-[2px] align-middle">
+      {[0, 1, 2].map((i) => (
+        <span key={i} className="typing-dot h-[3px] w-[3px] rounded-full bg-current" style={{ animationDelay: `${i * 0.15}s` }} />
+      ))}
+    </span>
   )
 }

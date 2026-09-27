@@ -26,7 +26,7 @@ test("cycles don't hang and unconnected elements aren't placed", () => {
 })
 
 test("a typed architecture lays out as columns; elements already placed keep their spot", () => {
-  const user = { id: "u", name: "A", color: "#000", cursor: null }
+  const user = { id: "u", name: "A", color: "#000", cursor: null, typing: false }
   let i = 0
   const newId = () => `id${++i}`
   const g1 = interpretOffline("web app calls api server")

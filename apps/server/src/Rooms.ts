@@ -7,6 +7,7 @@ import {
   type Draft,
   DraftCleared,
   DraftUpdated,
+  UserTyping,
   NodesCommitted,
   NodesRemoved,
   NodesUpdated,
@@ -266,7 +267,7 @@ export const RoomsLive = Layer.effect(
     const join = (roomId: string, profile: { name: string; color: string }, outbox: Queue.Queue<ServerMessage>) =>
       Effect.gen(function* () {
         const room = yield* openRoom(roomId)
-        const user: User = { id: crypto.randomUUID(), name: profile.name, color: profile.color, cursor: null }
+        const user: User = { id: crypto.randomUUID(), name: profile.name, color: profile.color, cursor: null, typing: false }
         room.clients.set(user.id, { user, outbox })
 
         yield* Queue.offer(
@@ -284,6 +285,15 @@ export const RoomsLive = Layer.effect(
         yield* broadcast(room, new UserJoined({ user }), user.id)
 
         const self = () => room.clients.get(user.id)?.user
+
+        /** Tell everyone else when this person starts or stops typing (never what). */
+        const setTyping = (typing: boolean) =>
+          Effect.suspend(() => {
+            const c = room.clients.get(user.id)
+            if (!c || c.user.typing === typing) return Effect.void
+            c.user = { ...c.user, typing }
+            return broadcast(room, new UserTyping({ id: user.id, typing }), user.id)
+          })
 
         // Per-typist state: piece hysteresis, the in-flight Jev fetch, and the latest input.
         let pieceMemory: ReadonlyMap<number, PieceMemory> = new Map()
@@ -350,6 +360,7 @@ export const RoomsLive = Layer.effect(
           })
 
         const clearDraft = Effect.suspend(() => {
+          const stopTyping = setTyping(false)
           pieceMemory = new Map()
           latest = null
           llmResult = null
@@ -358,8 +369,8 @@ export const RoomsLive = Layer.effect(
           const hadSuggestions = lastSuggestions !== "[]"
           const clearSuggestions = hadSuggestions ? sendSuggestions([]) : Effect.void
           return room.drafts.delete(user.id)
-            ? Effect.all([sendTo(room, user.id, new DraftCleared({ userId: user.id })), relayout(room), clearSuggestions], { discard: true })
-            : clearSuggestions
+            ? Effect.all([sendTo(room, user.id, new DraftCleared({ userId: user.id })), relayout(room), clearSuggestions, stopTyping], { discard: true })
+            : Effect.all([clearSuggestions, stopTyping], { discard: true })
         })
 
         /** Build and broadcast the draft from what's known now; returns the pieces still waiting on Jev. */
@@ -429,6 +440,7 @@ export const RoomsLive = Layer.effect(
               yield* cancelInflight
               if (!self()) return
               if (!text.trim()) return yield* clearDraft
+              yield* setTyping(true)
               latest = { text, anchor }
               if (llmResult?.text !== text) llmResult = null
               const missing = yield* render(text, anchor)
@@ -491,7 +503,7 @@ export const RoomsLive = Layer.effect(
             yield* sendSuggestions([])
             const draft = room.drafts.get(user.id)
             // An entry can be only arrows ("connect them together").
-            if (!draft || (draft.nodes.length === 0 && draft.edges.length === 0 && draft.patches.length === 0)) return
+            if (!draft || (draft.nodes.length === 0 && draft.edges.length === 0 && draft.patches.length === 0)) return yield* setTyping(false)
             lastDraftSignature = ""
             // Elements this draft pushed aside stay where they were pushed.
             const committedNow = [...room.nodes.values()]
@@ -568,6 +580,7 @@ export const RoomsLive = Layer.effect(
             yield* broadcast(room, new NodesCommitted({ nodes: committed, edges: draft.edges }))
             if (patched.length) yield* broadcast(room, new NodesUpdated({ nodes: patched }))
             yield* sendTo(room, user.id, new DraftCleared({ userId: user.id }))
+            yield* setTyping(false)
             yield* relayout(room)
           }),
 
