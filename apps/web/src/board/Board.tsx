@@ -10,6 +10,7 @@ import {
   type Point,
   RenameHandle,
   SetNote,
+  StepDraft,
   SetImage,
   SetInput,
   type User,
@@ -439,6 +440,8 @@ export function Board({ roomId, identity }: { roomId: string; identity: Identity
         onHighlight={setHighlight}
         target={targetPath(target)}
         onTarget={setTarget}
+        history={(state.selfId && state.drafts.get(state.selfId)?.history) || undefined}
+        onStep={(delta) => send(new StepDraft({ delta }))}
         onChange={(text) => send(new SetInput({ text, anchor: anchor(), ...(target ? { target } : {}) }))}
         onCommit={() => send(new Commit())}
         onDiscard={() => send(new Discard())}
