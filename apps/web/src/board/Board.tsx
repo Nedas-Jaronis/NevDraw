@@ -24,6 +24,7 @@ import { BoardActions } from "./images.tsx"
 import { HighlightContext, RootView } from "./NodeView.tsx"
 import { DebugPanel } from "./DebugPanel.tsx"
 import { EdgeLayer } from "./EdgeLayer.tsx"
+import { HelpButton } from "./HelpButton.tsx"
 import { buildTree } from "./tree.ts"
 import { applyTheme, followSystem, loadTheme, type ThemePref } from "../theme.ts"
 
@@ -385,6 +386,7 @@ export function Board({ roomId, identity }: { roomId: string; identity: Identity
         onCommit={() => send(new Commit())}
         onDiscard={() => send(new Discard())}
       />
+      {!DEBUG && <HelpButton />}
       {DEBUG && <DebugPanel pieces={(state.selfId && state.debug.get(state.selfId)) || []} />}
       <TopBar roomId={roomId} users={[...state.users.values()]} selfId={state.selfId} status={state.status} />
     </div>

@@ -57,7 +57,7 @@ const SCENARIOS: Array<{ id: string; steps: string[] }> = [
       "make {servers stack} green",
       "turn all servers inside {servers stack} blue",
       "detach {server 1} from {servers stack}",
-      "disconnect {load balancer} from {servers stack}",
+      "disconnect {servers stack} and {load balancer}",
     ],
   },
   {
@@ -112,10 +112,12 @@ for (const s of SCENARIOS) {
     seen = c.received.length
   }
   const handleFor = (words: string) => {
-    const want = words.toLowerCase()
+    // Singular or plural: "servers stack" finds "Server stack".
+    const norm = (x: string) => x.toLowerCase().replace(/s\b/g, "")
+    const want = norm(words)
     const hit =
-      [...nodes.values()].find((n) => n.label.toLowerCase() === want) ??
-      [...nodes.values()].find((n) => n.label.toLowerCase().includes(want))
+      [...nodes.values()].find((n) => norm(n.label) === want) ??
+      [...nodes.values()].find((n) => norm(n.label).includes(want))
     return hit?.handle ?? `{${words}?}`
   }
 
