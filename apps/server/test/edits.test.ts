@@ -325,3 +325,18 @@ test("annotations: typed commands and the protocol", async () => {
   c.send(new Commit())
   await c.waitFor(is("NodesUpdated", (m) => m.nodes.some((n) => n.props.note === "swap the photo")))
 })
+
+test("disconnecting a group cuts the arrows from what's inside it ('disconnect @stack and @lb')", async () => {
+  const c = await room()
+  c.send(new SetInput({ text: "an api writes to postgres", anchor }))
+  c.send(new Commit())
+  const first = await c.waitFor(is("NodesCommitted"))
+  c.send(new SetInput({ text: "wrap @api into a backend box", anchor }))
+  c.send(new Commit())
+  await c.waitFor(is("NodesUpdated", (m) => m.nodes.some((n) => n.handle === "@api" && n.parent !== null)))
+  c.send(new SetInput({ text: "disconnect @backend-box and @postgres", anchor }))
+  await c.waitFor(is("DraftUpdated", (m) => m.draft.text.startsWith("disconnect")))
+  c.send(new Commit())
+  const removed = await c.waitFor(is("NodesRemoved"))
+  expect(removed.edgeIds).toEqual(first.edges.map((e) => e.id))
+})

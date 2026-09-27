@@ -506,12 +506,17 @@ export const RoomsLive = Layer.effect(
               const n = room.nodes.get(p.id)
               if (!n) continue
               if (p.unlink) {
-                // Unlinking from a group also cuts the arrows to what's inside it.
-                const other = new Set(p.unlink === "*" ? [] : [p.unlink])
-                for (const id of other) for (const c of room.nodes.values()) if (c.parent === id) other.add(c.id)
-                const hits = (id: string) => p.unlink === "*" || other.has(id)
+                // A group stands for everything inside it, on either side ("disconnect @stack and @lb").
+                const withInside = (id: string) => {
+                  const out = new Set([id])
+                  for (const cur of out) for (const c of room.nodes.values()) if (c.parent === cur) out.add(c.id)
+                  return out
+                }
+                const mine = withInside(n.id)
+                const theirs = p.unlink === "*" ? null : withInside(p.unlink)
+                const hits = (id: string) => theirs === null || theirs.has(id)
                 for (const e of room.edges.values())
-                  if ((e.from === n.id && hits(e.to)) || (e.to === n.id && hits(e.from))) {
+                  if ((mine.has(e.from) && hits(e.to)) || (mine.has(e.to) && hits(e.from))) {
                     room.edges.delete(e.id)
                     unlinked.push(e.id)
                   }
