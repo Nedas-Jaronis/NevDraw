@@ -1,7 +1,7 @@
 /**
  * bun run share: build the web app, start the production server on one
- * port, open a Cloudflare quick tunnel to it, and print the public link and
- * a QR code. Ctrl+C stops both. The link changes each time the tunnel
+ * port, have it open a Cloudflare quick tunnel to itself, and print the
+ * public link and a QR code. Ctrl+C stops both. The link changes each time the tunnel
  * restarts, so leave this running while people are on the board.
  */
 import { existsSync } from "node:fs"
@@ -42,39 +42,26 @@ for (let i = 0; i < 60; i++) {
 }
 
 console.log("› opening a Cloudflare tunnel…")
-const tunnel = Bun.spawn([cloudflared, "tunnel", "--no-autoupdate", "--url", `http://localhost:${port}`], {
-  stdout: "pipe",
-  stderr: "pipe",
-})
+// The server owns the tunnel (the same one "Go remote" in the profile menu opens).
+const res = await fetch(`http://localhost:${port}/api/session/remote`, { method: "POST" })
+const body = (await res.json().catch(() => ({}))) as { publicUrl?: string; error?: string }
+if (!body.publicUrl) {
+  console.error(`Couldn't open the tunnel: ${body.error ?? res.status}`)
+  server.kill()
+  process.exit(1)
+}
+const url = body.publicUrl
 
 const stop = () => {
-  tunnel.kill()
   server.kill()
   process.exit(0)
 }
 process.on("SIGINT", stop)
 process.on("SIGTERM", stop)
 
-// cloudflared prints the public URL on stderr.
-const decoder = new TextDecoder()
-let announced = false
-const reader = tunnel.stderr.getReader()
-for (;;) {
-  const { value: chunk, done } = await reader.read()
-  if (done) break
-  const text = decoder.decode(chunk)
-  const url = /https:\/\/[a-z0-9-]+\.trycloudflare\.com/.exec(text)?.[0]
-  if (url && !announced) {
-    announced = true
-    // Give the edge a moment to route the new hostname.
-    for (let i = 0; i < 30; i++) {
-      if (await fetch(url).then((r) => r.ok).catch(() => false)) break
-      await Bun.sleep(1000)
-    }
-    console.log(`\n  Live Wireframes is public at:\n\n    ${url}\n`)
-    console.log(await QRCode.toString(url, { type: "terminal", small: true }))
-    console.log("  Share that link (or the QR). Each board's own link also has a QR under Share.")
-    console.log("  Leave this running; Ctrl+C stops the server and the tunnel.")
-    console.log("  (A brand-new link can take a minute to resolve on this machine; other devices usually get it right away.)\n")
-  }
-}
+console.log(`\n  Live Wireframes is public at:\n\n    ${url}\n`)
+console.log(await QRCode.toString(url, { type: "terminal", small: true }))
+console.log("  Share that link (or the QR). Each board's own link also has a QR under Share.")
+console.log("  Leave this running; Ctrl+C stops the server and the tunnel.")
+console.log("  (A brand-new link can take a minute to resolve on this machine; other devices usually get it right away.)\n")
+await server.exited

@@ -8,6 +8,7 @@ import { type Jev, JevFromEnv } from "./classify/Jev.ts"
 import { type Refiner, RefinerFromEnv } from "./refine/Refiner.ts"
 import { env } from "./env.ts"
 import { RoomsLive } from "./Rooms.ts"
+import { goRemote, sessionInfo } from "./session.ts"
 import { roomSocket } from "./socket.ts"
 import { staticFiles } from "./static.ts"
 
@@ -15,6 +16,8 @@ export const DEFAULT_DB_PATH = resolve(import.meta.dir, "../../../data/boards.sq
 
 export const router = HttpRouter.empty.pipe(
   HttpRouter.get("/ws/:roomId", roomSocket),
+  HttpRouter.get("/api/session", sessionInfo),
+  HttpRouter.post("/api/session/remote", goRemote),
   HttpRouter.get("*", staticFiles()),
 )
 

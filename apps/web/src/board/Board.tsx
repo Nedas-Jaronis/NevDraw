@@ -25,6 +25,7 @@ import { HighlightContext, RootView } from "./NodeView.tsx"
 import { DebugPanel } from "./DebugPanel.tsx"
 import { EdgeLayer } from "./EdgeLayer.tsx"
 import { ExportDialog } from "./ExportDialog.tsx"
+import { ProfileMenu } from "./ProfileMenu.tsx"
 import { HelpButton } from "./HelpButton.tsx"
 import { buildTree } from "./tree.ts"
 import { applyTheme, followSystem, loadTheme, type ThemePref } from "../theme.ts"
@@ -566,18 +567,7 @@ function TopBar(props: { roomId: string; users: User[]; selfId: string | null; s
           </span>
         )}
       </div>
-      <div data-ui className="pointer-events-auto flex -space-x-2" aria-label="People in this room">
-        {props.users.map((u) => (
-          <div
-            key={u.id}
-            title={u.id === props.selfId ? `${u.name} (you)` : u.name}
-            className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-[var(--panel)] text-xs font-semibold text-white"
-            style={{ background: u.color }}
-          >
-            {u.name.slice(0, 2).toUpperCase()}
-          </div>
-        ))}
-      </div>
+      <ProfileMenu users={props.users} selfId={props.selfId} roomId={props.roomId} />
     </div>
   )
 }
