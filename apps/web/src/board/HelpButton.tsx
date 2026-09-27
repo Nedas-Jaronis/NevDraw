@@ -1,6 +1,6 @@
 import { AnimatePresence, motion } from "motion/react"
 import { type ReactNode, useEffect, useState } from "react"
-import { CloseButton, SHEET } from "./SideMenu.tsx"
+import { CloseButton } from "./SideMenu.tsx"
 
 /** The "?" in the corner: where this came from, and how to talk to the board. */
 export function HelpButton() {
@@ -30,23 +30,24 @@ export function HelpButton() {
         {open && (
           <motion.aside
             data-ui
-            initial={{ opacity: 0, x: 16 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: 16, transition: { duration: 0.14 } }}
-            transition={{ type: "spring", stiffness: 420, damping: 36 }}
+            initial={{ x: "100%" }}
+            animate={{ x: 0 }}
+            exit={{ x: "100%", transition: { duration: 0.18, ease: [0.4, 0, 1, 1] } }}
+            transition={{ type: "spring", stiffness: 380, damping: 40 }}
             role="dialog"
             aria-label="About Live Wireframes"
-            className={`${SHEET} right-3 w-[min(360px,calc(100vw-24px))]`}
+            // The whole right side, like a macOS inspector: flush to the edge, full height.
+            className="fixed inset-y-0 right-0 z-50 flex w-[min(400px,100vw)] flex-col border-l border-[var(--panel-border)] bg-[var(--panel)]/90 shadow-[-24px_0_64px_-32px_rgba(0,0,0,0.4)] backdrop-blur-2xl"
           >
-            <div className="flex items-start justify-between px-5 pb-3 pt-5">
+            <header className="flex items-start justify-between gap-4 border-b border-[var(--hairline)] px-6 pb-4 pt-6">
               <div>
-                <div className="text-[15px] font-semibold tracking-tight">How it works</div>
-                <div className="mt-0.5 text-xs text-[var(--muted)]">Describe it. Watch it appear. Press Enter.</div>
+                <h2 className="text-[19px] font-semibold tracking-tight">How it works</h2>
+                <p className="mt-1 text-[12.5px] text-[var(--muted)]">Describe it. Watch it appear. Press Enter.</p>
               </div>
               <CloseButton onClick={() => setOpen(false)} />
-            </div>
-            <div className="flex flex-1 flex-col gap-5 overflow-y-auto px-5 pb-5 text-[12.5px] leading-relaxed">
-              <Section title="The story">
+            </header>
+            <div className="sleek-scroll flex flex-1 flex-col divide-y divide-[var(--hairline)] overflow-y-auto px-6 text-[12.5px] leading-relaxed text-[var(--ink)]/85">
+              <Section icon="✦" tint="#7c3aed" title="The story">
                 <p>
                   It started with{" "}
                   <a href="https://github.com/anishfn/shapeshift" target="_blank" rel="noreferrer" className="underline decoration-dotted">
@@ -55,15 +56,15 @@ export function HelpButton() {
                   , where a sentence turns into a working widget as you type. We asked what happens when a whole team does that on
                   one board, at the same time.
                 </p>
-                <p className="mt-1.5">
+                <p className="mt-2">
                   Everyone gets their own input box. As you type, your idea appears as a dashed draft that everyone can watch take
                   shape. Press Enter and it becomes real. Pages, forms and heroes sit next to the servers, queues and databases behind
                   them, with arrows between them. No dragging boxes from a palette: you describe it, the board draws it.
                 </p>
               </Section>
 
-              <Section title="How your typing works">
-                <ul className="flex flex-col gap-1">
+              <Section icon="⌨" tint="#2563eb" title="How your typing works">
+                <ul className="flex flex-col gap-1.5">
                   <Li>Your words turn into a dashed draft instantly, for everyone to see.</Li>
                   <Li>When you pause, an AI re-reads the whole sentence and fixes names, types, nesting and arrows.</Li>
                   <Li>
@@ -76,7 +77,7 @@ export function HelpButton() {
                 </ul>
               </Section>
 
-              <Section title="Try saying">
+              <Section icon="✎" tint="#0891b2" title="Try saying" hint="Click one to copy it">
                 <Examples
                   items={[
                     "a landing page with a navbar, a hero, three pricing cards and a footer",
@@ -89,7 +90,7 @@ export function HelpButton() {
                 />
               </Section>
 
-              <Section title="Changing what's there">
+              <Section icon="↻" tint="#16a34a" title="Changing what's there">
                 <Examples
                   items={[
                     "make @hero tiffany blue",
@@ -103,7 +104,7 @@ export function HelpButton() {
                 />
               </Section>
 
-              <Section title="Arrows read like English">
+              <Section icon="→" tint="#d97706" title="Arrows read like English">
                 <p>
                   <em>calls, uses, sends to</em> → calls · <em>reads from, queries</em> → reads · <em>writes to, stores in</em> →
                   writes · <em>publishes to</em> · <em>consumes from, subscribes to</em> · <em>navigates to, leads to</em>. Counts
@@ -111,8 +112,8 @@ export function HelpButton() {
                 </p>
               </Section>
 
-              <Section title="Hands-on">
-                <ul className="flex flex-col gap-1">
+              <Section icon="⌘" tint="#db2777" title="Hands-on">
+                <ul className="flex flex-col gap-1.5">
                   <Li>Drag elements; they stay where you put them. Drag on empty space to box-select.</Li>
                   <Li>
                     <Key>Delete</Key> removes the selection, <Key>⌘/Ctrl A</Key> selects all, hold <Key>Space</Key> to pan,
@@ -142,10 +143,21 @@ export function HelpButton() {
   )
 }
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
+/** A section: a small tinted icon tile, a sentence-case heading, then its content. */
+function Section({ icon, tint, title, hint, children }: { icon: string; tint: string; title: string; hint?: string; children: ReactNode }) {
   return (
-    <section>
-      <h3 className="mb-2 text-[11px] font-medium uppercase tracking-wider text-[var(--muted)]">{title}</h3>
+    <section className="py-5">
+      <div className="mb-3 flex items-center gap-2.5">
+        <span
+          aria-hidden
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[12px]"
+          style={{ color: tint, background: `color-mix(in srgb, ${tint} 14%, transparent)` }}
+        >
+          {icon}
+        </span>
+        <h3 className="flex-1 text-[13.5px] font-semibold tracking-tight text-[var(--ink)]">{title}</h3>
+        {hint && <span className="text-[11px] text-[var(--muted)]">{hint}</span>}
+      </div>
       {children}
     </section>
   )
@@ -167,7 +179,7 @@ function Code({ children }: { children: ReactNode }) {
 function Examples({ items }: { items: string[] }) {
   const [copied, setCopied] = useState<string | null>(null)
   return (
-    <ul className="flex flex-col gap-1">
+    <ul className="flex flex-col gap-1.5">
       {items.map((x) => (
         <li key={x}>
           <button
@@ -178,7 +190,7 @@ function Examples({ items }: { items: string[] }) {
               setCopied(x)
               setTimeout(() => setCopied((c) => (c === x ? null : c)), 1200)
             }}
-            className="w-full rounded-lg bg-[var(--ink)]/[0.04] px-2.5 py-1.5 text-left text-[11.5px] transition hover:bg-[var(--ink)]/[0.08]"
+            className="w-full rounded-lg bg-[var(--ink)]/[0.04] px-3 py-2 text-left text-[12px] text-[var(--ink)] transition hover:bg-[var(--ink)]/[0.08] active:scale-[0.99]"
           >
             {copied === x ? "Copied ✓" : x}
           </button>
