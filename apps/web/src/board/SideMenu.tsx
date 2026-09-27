@@ -73,7 +73,7 @@ export function SideMenu(props: { roomId: string; status: string; onExport: () =
                 </div>
                 <CloseButton onClick={() => setOpen(false)} />
               </div>
-              <div className="flex flex-1 flex-col gap-5 overflow-y-auto px-5 pb-5">
+              <div className="sleek-scroll flex flex-1 flex-col gap-5 overflow-y-auto px-5 pb-5">
                 <ShareLink />
                 <Group title="Board">
                   <Item
