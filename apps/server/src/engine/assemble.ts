@@ -376,7 +376,9 @@ export function assemble(
     let namedRest: string | null = null
     // Arrow targets are separate elements, never nested.
     if (!edge && piece.connector !== "start" && prev) {
-      const nest = piece.connector === "with" || a.childOfContainer >= YES
+      // Jev's childOfContainer says it belongs in *a* container, not which: after "," / "and" that's the
+      // previous element's own container (siblings), unless the previous element is the top-level one.
+      const nest = piece.connector === "with" || (a.childOfContainer >= YES && prev.parent === null)
       // Media right after an element sits inside it ("a hero with an image"), container or not.
       const holds = prev.container || (piece.connector === "with" && EMBEDDABLE.has(a.nodeType.value))
       parent = nest && holds ? prev.key : prev.parent

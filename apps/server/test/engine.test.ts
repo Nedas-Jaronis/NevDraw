@@ -221,3 +221,13 @@ test("the AI's system pieces are never nested: a box holding servers becomes a g
   expect(g.nodes.map((n) => [n.key, n.parent])).toEqual([["s1", null], ["s2", null], ["lb", null]])
   expect(g.edges.map((e) => `${e.from}>${e.to}`)).toEqual(["s1>lb", "s2>lb"])
 })
+
+test("siblings after ',' / 'and' stay siblings even when Jev says each belongs in a container", async () => {
+  const { interpret } = await import("../src/engine/index.ts")
+  const { keywordAnswers } = await import("../src/engine/answers.ts")
+  // Jev's real answers: every part is a child of a container, and navbars/heroes can hold things.
+  const peek = (st: { piece: string }) => ({ ...keywordAnswers({ index: 0, text: st.piece, connector: "start" }), isContainer: 0.8, childOfContainer: 0.93, source: "jev" as const })
+  const g = interpret({ text: "a landing page with a navbar, a hero, three pricing cards and a footer", handles: new Map(), peek: peek as never, memory: new Map() }).graph
+  const parentOf = (label: string) => g.nodes.find((n) => n.label === g.nodes.find((m) => m.key === g.nodes.find((x) => x.label === label)?.parent)?.label)?.label
+  for (const part of ["Navbar", "Hero", "Pricing cards", "Footer"]) expect(parentOf(part)).toBe("Landing page")
+})
