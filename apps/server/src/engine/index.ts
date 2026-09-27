@@ -4,7 +4,7 @@ import type { PieceState } from "../classify/Jev.ts"
 import { keywordAnswers, type PieceAnswers } from "./answers.ts"
 import { detachOf, noteOf } from "./edits.ts"
 import { itemEditOf } from "./items.ts"
-import { placeInTarget, readTargeted, removeByName, retypeByName, unlinkByName } from "./target.ts"
+import { columnsOf, placeInTarget, readTargeted, removeByName, retypeByName, unlinkByName } from "./target.ts"
 import { assemble, classificationText, type HandleInfo } from "./assemble.ts"
 import { type Piece, split } from "./split.ts"
 import { type PieceMemory, stabilize } from "./stabilize.ts"
@@ -202,6 +202,48 @@ export function withoutGuesses(graph: EntryGraph, pieces: readonly Piece[], answ
   }
 }
 
+type LocalMove = { what: string; where: "before" | "after" | "top" | "bottom"; other?: string }
+const MOVE_CLAUSE =
+  /(?:[,;.]\s*|\s+)(?:and\s+)?(?:then\s+)?(?:put|move|place|have)\s+(?:the\s+)?(.+?)\s+(before|after|above|below|under|beneath|at the top|at the bottom|first|last)(?:\s+(?:the\s+)?(.+?))?(?=$|[,;.]|\s+and\s+)/gi
+
+/** Pull "put X before Y" clauses out of a description (kept as text when they aren't about its own parts). */
+export function localMoves(text: string): { rest: string; moves: LocalMove[] } {
+  const moves: LocalMove[] = []
+  const rest = text.replace(MOVE_CLAUSE, (_, what: string, where: string, other?: string) => {
+    const w = where.toLowerCase()
+    const kind = /top|first/.test(w) ? "top" : /bottom|last/.test(w) ? "bottom" : /before|above/.test(w) ? "before" : "after"
+    moves.push({ what, where: kind, ...(other && kind !== "top" && kind !== "bottom" ? { other } : {}) })
+    return ""
+  })
+  return { rest: rest.trim(), moves }
+}
+
+/** Reorder siblings this graph creates; null when a move names something it doesn't have. */
+export function applyLocalMoves(graph: EntryGraph, moves: readonly LocalMove[]): EntryGraph | null {
+  const norm = (s: string) => s.toLowerCase().replace(/^(?:the|a|an)\s+/, "").replace(/[^a-z0-9]+/g, " ").trim()
+  const find = (phrase: string) => {
+    const want = norm(phrase)
+    return graph.nodes.find((n) => norm(n.label) === want) ?? graph.nodes.find((n) => norm(n.label).includes(want) || want.includes(norm(n.label)))
+  }
+  let nodes = [...graph.nodes]
+  for (const m of moves) {
+    const x = find(m.what)
+    if (!x) return null
+    const sibs = nodes.filter((n) => n.parent === x.parent && n.key !== x.key)
+    nodes = nodes.filter((n) => n.key !== x.key)
+    let at: number
+    if (m.where === "top") at = sibs[0] ? nodes.indexOf(sibs[0]) : nodes.length
+    else if (m.where === "bottom") at = sibs.at(-1) ? nodes.indexOf(sibs.at(-1)!) + 1 : nodes.length
+    else {
+      const y = m.other ? find(m.other) : undefined
+      if (!y || y.parent !== x.parent) return null
+      at = nodes.indexOf(y) + (m.where === "after" ? 1 : 0)
+    }
+    nodes.splice(at, 0, x)
+  }
+  return { ...graph, nodes }
+}
+
 export type PieceDebug = { text: string; type: string; confidence: number; source: "keyword" | "jev" }
 
 /**
@@ -243,6 +285,9 @@ export function interpret(input: {
   // "remove server9" when there's no server9: a removal that finds nothing does nothing.
   if (!target && /^(?:please\s+)?(?:remove|delete|erase|get rid of|trash|ditch)\b/i.test(said) && !/\b(?:add|create|make|with)\b/i.test(said))
     return only([])
+  // "turn the cta and footer into a 2 column layout": one row, both moved into it, nothing else made.
+  const cols = columnsOf(said, input.handles, target)
+  if (cols) return { ...only(cols.patches), graph: { nodes: [cols.row], edges: [], suggestions: [], patches: cols.patches } }
   // "make cta a left sidebar and footer a right sidebar": existing elements change kind in place.
   const retyped = retypeByName(said, input.handles, target)
   if (retyped) return only(retyped)
@@ -252,7 +297,13 @@ export function interpret(input: {
   // A clicked target: remove / move / change its parts; anything else is new parts inside it.
   const aimed = target ? readTargeted(said, target, input.handles) : null
   if (aimed && !aimed.rest.trim()) return only(aimed.patches)
-  const text = aimed ? aimed.rest : said
+  const text0 = aimed ? aimed.rest : said
+  // Move clauses about parts this sentence creates are applied after the parts exist.
+  const pulled = localMoves(text0)
+  // Only when every move names parts this sentence creates ("put @cta before @footer" stays a command).
+  const local = (phrase: string) => !/@/.test(phrase) && new RegExp(`\\b${phrase.replace(/^(?:the|a|an)\\s+/i, "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(pulled.rest)
+  const ordering = pulled.moves.length && pulled.moves.every((m) => local(m.what) && (!m.other || local(m.other))) ? pulled : { rest: text0, moves: [] }
+  const text = ordering.rest
   const pieces = split(text)
   const states = pieceStates(pieces, [...input.handles.keys()], input.handles)
   const memory = new Map<number, PieceMemory>()
@@ -271,6 +322,11 @@ export function interpret(input: {
     source: answers[i]!.source,
   }))
   let graph = withoutGuesses(assemble(pieces, answers, input.handles, input.recent ?? []), pieces, answers)
+  // "…, and put the cta before the footer": order the parts this same sentence describes.
+  if (ordering.moves.length) {
+    const ordered = applyLocalMoves(graph, ordering.moves)
+    if (ordered) graph = ordered
+  }
   if (target && aimed) {
     graph = placeInTarget(graph, target, input.handles)
     const patches = new Map(graph.patches.map((p) => [p.target, p]))
