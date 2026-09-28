@@ -12,6 +12,8 @@ a [landing page](INSTANCE) with a [navbar](INSTANCE), [three](COUNT) [pricing ca
 [rename](ACTION) [it](REF) to [Checkout](NAME), then [make](ACTION) the [footer](REF) [navy](ATTR)
 ```
 
+Background, decisions and next steps: [`thoughts/instance-tagger-handoff.md`](../../thoughts/instance-tagger-handoff.md).
+
 Nothing here is wired into the server yet. This folder is the kit to train, measure
 and compare models; the server change comes once the numbers are good.
 
@@ -40,6 +42,7 @@ Creation verbs (`add`, `create`) and filler stay untagged.
 | `py/zero_shot.py` | Scores GLiNER models on gold with no training (accuracy + CPU latency) |
 | `src/tagger.ts` | The runtime: `Tagger.load(dir)` then `tagger.tag(text)` → spans with confidence |
 | `src/eval.ts` | Scores an export on gold and times it under Bun, the way the server would run it |
+| `bench/encoder_latency.py` | CPU speed of each model size (random weights), independent of accuracy |
 
 ## Run it on your laptop (RTX 4070)
 
