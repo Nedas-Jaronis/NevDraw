@@ -3,6 +3,30 @@
 Status on 2026-09-28. Branch `claude/input-parsing-finetuning-3nzsoe`. The kit is in
 [`ml/instances/`](../ml/instances/README.md). Nothing is wired into the server yet.
 
+## Update 2026-09-28 (laptop, RTX 4050, Hugging Face reachable)
+
+- **Laya: not switching, not later either.** It's faster than Jev (~33 ms on a GPU, ~70–110 ms on CPU
+  for its 421M encoder), but our own tagger runs in 4.7 ms. Laya also reads every option on every call
+  and is documented to degrade past ~20 options; `nodeType` already has 51 and will grow with the UI
+  coverage we want. Jev stays as the fallback until gold says it can go.
+- **UI vocabulary from 21st.dev.** `src/ui21st.ts` turns the sitemap into `data/ui-vocab.json`:
+  1,441 component kinds (1,275 mapped to a registry type) and 135 style words. The 166 unmapped kinds
+  are candidates for new registry types.
+- **Styling in the tag rules and gold.** Look words and styled properties ("dashed border", "gradient
+  background") are ATTR; 38 styling phrases written by hand were added to gold (179 total). They were
+  written by the same session as the templates, so the styling score is optimistic until real phrases are added.
+- **Results (Ettin-32m, 4 epochs, ~3 min on the 4050; Bun, fp32, 2 threads):**
+
+  | Run | Gold F1 | ATTR F1 | Sentences right | p50 |
+  |---|---|---|---|---|
+  | old data | 0.902 | 0.712 | 78.8% | 4.7 ms |
+  | + 21st.dev and styling, generator conflicts fixed | **0.963** | **1.000** | **91.1%** | **4.7 ms** |
+
+  int8 is ~2 ms faster but about 1 F1 point worse (it splits "at the bottom"); use fp32. The Bun
+  tokenizer matches Python's for Ettin. What's left: "api server" split, "4 of them", ambiguous gold
+  labels ("individual databases", "call @x the pricing page").
+- **Next:** the linking step (every span points at what it belongs to), then wiring into `interpret`.
+
 ## The problem
 
 Typed input becomes board actions through about 2,300 lines of substring and regex

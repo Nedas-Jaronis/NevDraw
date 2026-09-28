@@ -26,17 +26,24 @@ and compare models; the server change comes once the numbers are good.
 | COUNT | how many | `3`, `three`, `trio`, `4` in "4 of them" |
 | RELATION | a verb linking two things | `calls`, `writes to`, `connected to`, `connect` |
 | ACTION | an edit verb | `remove`, `move`, `rename`, `make`, `color`, `disconnect`, `group` |
-| ATTR | a property or position | `red`, `big`, `row`, `increments of 15`, `at the top`, `before` |
+| ATTR | a property, look or position | `red`, `big`, `row`, `glassmorphism`, `animated gradient`, `dashed border`, `increments of 15`, `at the top`, `before` |
 | NAME | a name or value given in the text | `called [postgres]`, `call it [Login]`, checklist items, note text |
 
 Creation verbs (`add`, `create`) and filler stay untagged.
+
+Styling: look words before a thing are ATTR and the thing stays INSTANCE (`a [glassmorphism](ATTR) [navbar](INSTANCE)`).
+A styled property after "with" is one ATTR span without its article (`a [card](INSTANCE) with a [2px navy border](ATTR)`),
+and so is the property an edit names (`[remove](ACTION) the [shadow](ATTR) from [@card](REF)`). A background is a
+property of what it's behind, not an instance.
 
 ## Files
 
 | Path | What |
 |---|---|
-| `data/gold.txt` | 141 real phrases from the tests and `scripts/arrows.ts`, labelled by hand. **Held out: never train on it.** |
-| `src/generate.ts` | Seeded synthetic training data from the registry plus templates; skips anything in gold |
+| `data/gold.txt` | 179 phrases: 141 real ones from the tests and `scripts/arrows.ts`, plus 38 styling phrases written by hand, all labelled by hand. **Held out: never train on it.** |
+| `src/ui21st.ts` | Builds `data/ui-vocab.json` from the 21st.dev sitemap: ~1,400 component kinds (mapped to registry types where they fit) and their style words |
+| `data/ui-vocab.json` | That vocabulary, checked in so generating doesn't need the site. `unmapped` lists kinds with no registry type yet |
+| `src/generate.ts` | Seeded synthetic training data from the registry, 21st.dev vocabulary and templates; skips anything in gold |
 | `py/train.py` | Fine-tunes an encoder (default `jhu-clsp/ettin-encoder-32m`) and scores dev + gold |
 | `py/export.py` | ONNX fp32 + int8, tokenizer, label map, and a token-id check file |
 | `py/zero_shot.py` | Scores GLiNER models on gold with no training (accuracy + CPU latency) |

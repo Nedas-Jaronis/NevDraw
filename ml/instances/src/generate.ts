@@ -42,12 +42,39 @@ const SIZES = ["big", "small", "large", "tiny", "wide", "tall", "huge", "compact
 const POS_END = ["at the top", "at the bottom", "on the left", "on the right", "at the start", "at the end", "first", "last"]
 const POS_REL = ["above", "below", "before", "after", "under", "next to"]
 const SEQUENCES = ["increments of 15", "increments of 5", "15 minute intervals", "5-minute increments", "steps of 10", "intervals of 30"]
-const RELATIONS = ["calls", "writes to", "reads from", "publishes to", "subscribes to", "consumes from", "connects to", "is connected to", "talks to", "sends to", "sends events to", "uses", "depends on", "forwards to", "goes through", "streams to", "fetches from", "points to", "navigates to", "links to", "hits", "queries", "stores data in", "pushes to", "pulls from", "emails the user via", "notifies"]
+const RELATIONS = ["calls", "writes to", "reads from", "publishes to", "subscribes to", "consumes from", "connects to", "connected to", "talks to", "sends to", "sends events to", "uses", "depends on", "forwards to", "goes through", "streams to", "fetches from", "points to", "navigates to", "links to", "hits", "queries", "stores data in", "pushes to", "pulls from", "emails", "notifies"]
 const RELATIONS_PL = ["call", "write to", "read from", "publish to", "subscribe to", "consume from", "connect to", "talk to", "send to", "use", "depend on", "go through", "hit", "query"]
 const NAMES = ["Pricing", "Checkout", "Login", "Dashboard", "Orders DB", "Acme", "Main", "Primary", "Backup", "Email", "Username", "Mobile", "Home", "Profile", "Billing", "Inbox", "Settings", "Analytics", "Get started", "Sign up", "Welcome back", "postgres", "sql", "main db", "users", "orders", "Reports", "Team", "Search", "Cart"]
 const ITEMS = ["milk", "eggs", "bread", "email", "password", "name", "phone", "address", "company", "message", "monday", "tuesday", "friday", "apples", "coffee", "home", "about", "blog", "contact", "pricing", "docs", "username", "city", "zip code"]
 const NOTES = ["copy from marketing", "needs the real photo", "check with design", "placeholder for now", "use the brand font", "ask legal", "wire to the api later"]
 const CREATE = ["", "", "", "add", "create", "make", "i want", "i need", "can you add", "please add", "give me", "build", "draw", "we need", "let's add", "put", "add me", "sketch", "design", "show"]
+/** Real component names from 21st.dev (src/ui21st.ts): the kind is the INSTANCE, its style words are ATTR. */
+type Vocab = { kinds: { kind: string; seen: number }[]; styles: string[]; components: { style: string[]; kind: string }[] }
+const VOCAB: Vocab = await Bun.file(new URL("../data/ui-vocab.json", import.meta.url)).json()
+// "background" is a property of what it's behind ("a hero with a video background"), not a thing on its own.
+const KINDS_21 = VOCAB.kinds.map((k) => k.kind).filter((k) => !/\bbackground$/.test(k) && k.split(" ").length <= 4)
+const STYLED_21 = VOCAB.components.filter((c) => c.style.length > 0 && !/\bbackground$/.test(c.kind))
+const LOOKS = [...VOCAB.styles.filter((w) => !COLORS.includes(w) && !SIZES.includes(w) && !["effect", "cursor", "mouse", "scroll", "loading", "trail"].includes(w)), "sticky", "transparent", "highlighted", "pill shaped", "rounded", "outlined", "frosted", "borderless", "full width", "centered", "muted", "bold", "flat", "elevated"]
+const look = () => (chance(0.2) ? `${pick(LOOKS)} ${pick(LOOKS)}` : pick(LOOKS))
+const FONTS = ["Inter", "Roboto", "Poppins", "Geist", "Helvetica", "serif", "monospace", "Space Grotesk", "Playfair Display", "Montserrat"]
+const PROP_HEADS = ["border", "background", "shadow", "corners", "font", "padding", "spacing", "border radius", "outline", "text color", "gradient", "margin", "opacity", "blur", "glow"]
+/** A styled property, as it follows "with": "dashed border", "2px navy border", "purple gradient background". */
+function prop(): string {
+  const px = () => `${between(1, 4)}px`
+  return pick([
+    () => `${pick(["dashed", "dotted", "solid", "thick", "thin", "double", "glowing", "animated", "gradient", pick(COLORS)])} border`,
+    () => `${px()} ${pick(COLORS)} border`,
+    () => `${pick(["rounded", "sharp", "soft", "square"])} corners`,
+    () => `${pick(["soft", "drop", "subtle", "large", "hard", "inner", "colored"])} shadow`,
+    () => `${pick(COLORS)} ${pick(["gradient", "", ""])} background`.replace(/\s+/g, " "),
+    () => `${pick(["video", "image", "animated", "blurred", "dark", "light", "gradient", "particle", "aurora", "grid", "dot pattern", "noise"])} background`,
+    () => `${pick(["bold", "serif", "monospace", "large", "handwritten", "condensed"])} font`,
+    () => `${pick(["more", "less", "extra", `${between(8, 48)}px`])} ${pick(["padding", "spacing", "margin"])}`,
+    () => `border radius of ${between(4, 24)}px`,
+    () => `${pick(COLORS)} text`,
+    () => `${pick(["glass", "frosted glass", "glassmorphism", "neon", "hover", "shimmer"])} effect`,
+  ])()
+}
 const WITH = ["with", "with", "containing", "that has", "including", "which has", "and inside it", "that contains"]
 const PRONOUNS = ["it", "them", "this", "that", "these", "everything", "all of them", "those"]
 
@@ -89,6 +116,7 @@ function uiNoun(): string {
   if (r < 0.3) return `${pick(DOMAIN)} ${pick(COMPOUNDABLE)}`
   if (r < 0.45) return `${pick(KIND_WORDS)} ${pick([...COMPOUNDABLE, ...UI_HEADS.filter((h) => !h.includes(" "))])}`
   if (r < 0.5) return NUMBERED()
+  if (r < 0.75) return pick(KINDS_21)
   return pick(UI_HEADS)
 }
 const archNoun = () => pick(ARCH)
@@ -110,11 +138,13 @@ function ref(noun = anyNoun()): Part[] {
 }
 const pronoun = (): Part[] => [T(pick(PRONOUNS), "REF")]
 const refOrPronoun = () => (chance(0.2) ? pronoun() : ref())
+/** Styling only makes sense on interface elements. */
+const uiRefOrPronoun = () => (chance(0.2) ? pronoun() : ref(uiNoun()))
 
 /** A new thing: [det | count] [color / size] noun [called NAME]. */
 function np(noun = anyNoun(), opts: { plural?: boolean; allowName?: boolean } = {}): Part[] {
   const parts: Part[] = []
-  const many = opts.plural ?? chance(0.2)
+  const many = (opts.plural ?? chance(0.2)) && !/s$/.test(noun)
   let head = noun
   if (many) {
     head = plural(noun)
@@ -127,8 +157,9 @@ function np(noun = anyNoun(), opts: { plural?: boolean; allowName?: boolean } = 
       else parts.push(T(w, "COUNT"))
     }
   } else if (chance(0.72)) parts.push(chance(0.1) ? "one" : "__ART__")
-  if (chance(0.15)) parts.push(T(pick(COLORS), "ATTR"))
+  if (chance(0.13)) parts.push(T(pick(COLORS), "ATTR"))
   else if (chance(0.07)) parts.push(T(pick(SIZES), "ATTR"))
+  else if (chance(0.12)) parts.push(T(look(), "ATTR"))
   parts.push(T(head.split(" ").map(typo).join(" "), "INSTANCE"))
   if (opts.allowName !== false && !many && chance(0.07)) parts.push(pick(["called", "named", "titled"]), T(pick(NAMES), "NAME"))
   // The article agrees with the word that follows it.
@@ -170,7 +201,7 @@ const templates: (() => Part[])[] = [
     return parts
   },
   // a row of 4 buttons
-  () => [...opener(), "a", T(pick(["row", "grid", "column"]), "ATTR"), "of", ...(chance(0.5) ? [T(String(between(2, 9)), "COUNT")] : []), T(plural(pick(PLURAL_OK)), "INSTANCE")],
+  () => [...opener(), "a", T(pick(["row", "grid", "column", "row", "grid", "bento grid", "masonry grid", "2 column grid", "stack", "carousel"]), "ATTR"), "of", ...(chance(0.5) ? [T(String(between(2, 9)), "COUNT")] : []), T(plural(pick(PLURAL_OK)), "INSTANCE")],
   // a stack of 5 servers / a 5 server stack
   () =>
     chance(0.5)
@@ -247,6 +278,37 @@ const templates: (() => Part[])[] = [
   () => (chance(0.5) ? ["add a note to", ...ref(), "saying", T(pick(NOTES), "NAME")] : [T("annotate", "ACTION"), ...ref(), ":", T(pick(NOTES), "NAME")]),
   // a database called postgres
   () => [...opener(), ...np(anyNoun(), { plural: false, allowName: false }), pick(["called", "named", "titled"]), T(pick(NAMES), "NAME")],
+  // a 21st.dev component, with its own style words: an animated gradient hero section
+  () => {
+    const c = pick(STYLED_21)
+    const parts: Part[] = [...opener(), "__ART__", T(c.style.join(" "), "ATTR"), T(c.kind, "INSTANCE")]
+    parts[parts.indexOf("__ART__")] = article(c.style[0]!)
+    if (chance(0.4)) parts.push(pick(["in", "inside", "on", "for"]), ...ref(uiNoun()))
+    return parts
+  },
+  // a card with a dashed border and a soft shadow / a hero with a video background
+  () => {
+    const parts: Part[] = [...opener(), ...np(uiNoun(), { allowName: false }), pick(["with", "with", "that has", "featuring"]), ...(chance(0.6) ? ["a"] : []), T(prop(), "ATTR")]
+    if (chance(0.35)) parts.push(pick(["and", ","]), ...(chance(0.5) ? ["a"] : []), T(prop(), "ATTR"))
+    if (chance(0.25)) parts.push(pick(["with", "and"]), ...list(uiNoun, between(1, 2)))
+    return parts
+  },
+  // give the hero a gradient background / add a 2px navy border to @card
+  () =>
+    chance(0.5)
+      ? [T(pick(["give", "set"]), "ACTION"), ...uiRefOrPronoun(), ...(chance(0.6) ? ["a"] : []), T(prop(), "ATTR")]
+      : [pick(["add", "put", "apply"]), ...(chance(0.6) ? ["a"] : []), T(prop(), "ATTR"), pick(["to", "on"]), ...uiRefOrPronoun()],
+  // remove the shadow from @card / make the border of the card thicker / change the font of @hero to Inter
+  () => {
+    const head = pick(PROP_HEADS)
+    const r = rand()
+    if (r < 0.35) return [T(pick(["remove", "delete", "drop", "get rid of"]), "ACTION"), "the", T(head, "ATTR"), "from", ...uiRefOrPronoun()]
+    if (r < 0.65) return [T(pick(["make", "turn"]), "ACTION"), "the", T(head, "ATTR"), "of", ...uiRefOrPronoun(), T(pick([...COLORS, "thicker", "thinner", "bigger", "smaller", "softer", "darker", "lighter", "rounder", "bolder"]), "ATTR")]
+    if (head === "font") return [T("change", "ACTION"), "the", T("font", "ATTR"), "of", ...uiRefOrPronoun(), "to", T(pick(FONTS), "NAME")]
+    return [T(pick(["change", "set"]), "ACTION"), "the", T(head, "ATTR"), "of", ...uiRefOrPronoun(), "to", T(pick([...COLORS, prop()]), "ATTR")]
+  },
+  // make the navbar sticky / make the buttons pill shaped
+  () => [T(pick(["make", "turn"]), "ACTION"), ...uiRefOrPronoun(), T(look(), "ATTR")],
   // noise: nothing to tag
   () => [pick(["big brand moment", "hmm", "ok so", "let me think", "not sure yet", "something like this", "wait", "undo that", "looks good", "nice", "hello", "and then", "with the", "maybe later"])],
 ]
