@@ -2,6 +2,8 @@ node_modules/
 runs/
 .venv/
 __pycache__/
+# The root .gitignore ignores data/ folders; this one is source.
+!data/
 # Regenerate with `bun run generate` (seeded, so it's the same file every time).
 data/train.jsonl
 data/dev.jsonl
