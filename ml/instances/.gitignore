@@ -1,0 +1,7 @@
+node_modules/
+runs/
+.venv/
+__pycache__/
+# Regenerate with `bun run generate` (seeded, so it's the same file every time).
+data/train.jsonl
+data/dev.jsonl

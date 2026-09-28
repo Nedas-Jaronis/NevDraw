@@ -1,0 +1,7 @@
+# Install PyTorch with CUDA first (see README), then: pip install -r py/requirements.txt
+transformers>=5.0
+tokenizers>=0.22
+onnx>=1.19
+onnxruntime>=1.23
+onnxscript
+gliner>=0.2.29
