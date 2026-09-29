@@ -1,0 +1,15 @@
+.git
+.env
+.env.*
+!.env.example
+**/node_modules
+data/
+apps/web/dist
+models/parser/
+ml/instances/runs
+ml/instances/.venv
+ml/instances/node_modules
+ml/instances/data/train.jsonl
+ml/instances/data/dev.jsonl
+**/*.sqlite
+**/*.sqlite-*
