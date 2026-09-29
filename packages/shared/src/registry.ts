@@ -127,7 +127,7 @@ export const REGISTRY: { readonly [K in NodeType]: RegistryEntry } = {
   countdown: ui("A countdown of days until a date or event, such as days until launch", ["days until", "days left", "countdown to", "count down to", "launch countdown", "countdown"]),
   color: ui("A color swatch or color picker", ["color picker", "color", "colour", "palette", "swatch", "theme color"]),
   contact: ui("A contact card with a name, phone number and email", ["contact", "contact card", "business card", "phone number", "address book"]),
-  link: ui("A link preview or bookmark card for a URL", ["link preview", "bookmark", "bookmarks", "url", "link card"]),
+  link: ui("A link: a nav, menu or footer link, or a link preview or bookmark card for a URL", ["link preview", "bookmark", "bookmarks", "url", "link card", "nav link", "nav links", "nav item", "nav items", "menu item", "menu items", "menu link", "footer link", "social link"]),
   habit: ui("A habit tracker showing a weekly streak", ["habit", "habits", "habit tracker", "streak"]),
   goal: ui("A goal with progress toward a target, such as 4 of 12 books", ["goal", "goals", "goal tracker", "okr", "target"]),
   reminder: ui("A single reminder or alarm pill", ["reminder", "reminders", "remind me", "alarm"]),

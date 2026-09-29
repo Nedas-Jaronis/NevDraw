@@ -655,6 +655,14 @@ function Sketch({ node, editable }: { node: BoardNode; editable: boolean }) {
         </div>
       )
     case "link":
+      // A nav / menu / footer link is one line of link; a preview or bookmark is the card.
+      if (!/preview|bookmark|card|url/i.test(label))
+        return (
+          <div className="flex items-center gap-2 text-[12px] text-[var(--a)]">
+            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--a)]" />
+            <span className={`h-1.5 w-20 ${bar}`} />
+          </div>
+        )
       return (
         <div className={`flex items-center gap-2 p-1.5 ${field}`}>
           <span className="h-7 w-7 rounded-md bg-[var(--a)]/20" />

@@ -4,7 +4,7 @@ import { parse as markup, Tagger, type TaggedSpan } from "@rtw/parser"
 import { existsSync } from "node:fs"
 import { interpretOffline } from "../src/engine/index.ts"
 import { sensibleParents } from "../src/engine/materialize.ts"
-import { nestFromModel } from "../src/parse/nesting.ts"
+import { cleanLabel, nestFromModel } from "../src/parse/nesting.ts"
 import { DEFAULT_MODEL_DIR, norm, shadowEntry } from "../src/parse/Parser.ts"
 
 /** Spans from markup, as if the model had read them (confidence 1). */
@@ -116,5 +116,26 @@ describe("the model decides nesting (PARSER=on)", () => {
       patches: [],
     }
     expect(nestFromModel(g, text, spans).nodes.find((n) => n.key === "a")!.parent).toBe(null)
+  })
+
+  test("a label carrying its position still matches ('Sidebar on the left'), and loses the position words", () => {
+    const { text, spans } = read(
+      "a [dashboard](INSTANCE) with a [sidebar](INSTANCE in:dashboard) [on the left](ATTR mod:sidebar) containing a [search bar](INSTANCE in:sidebar) and [5](COUNT mod:nav links) [nav links](INSTANCE in:sidebar)",
+    )
+    // As Jev read it: everything straight inside the dashboard.
+    const g = interpretOffline(text)
+    const dash = g.nodes.find((n) => n.label === "Dashboard")!.key
+    const flat: EntryGraph = { ...g, nodes: g.nodes.map((n) => (n.label === "Search bar" || n.label === "Nav links" ? { ...n, parent: dash } : n)) }
+    const out = nestFromModel(flat, text, spans)
+    const side = out.nodes.find((n) => n.type === "section" && /sidebar/i.test(n.label))!
+    expect(side.label).toBe("Sidebar")
+    expect(out.nodes.filter((n) => n.parent === side.key).map((n) => n.label).sort()).toEqual(["Nav links", "Search bar"])
+    expect(out.nodes.filter((n) => n.label === "Nav link").every((n) => n.type === "link")).toBe(true)
+  })
+
+  test("only position words come out of a label; right stays as a leading word", () => {
+    expect(cleanLabel("sidebar", "Sidebar on the left")).toBe("Sidebar")
+    expect(cleanLabel("sidebar", "Sidebar on the right")).toBe("Right sidebar")
+    expect(cleanLabel("navbar", "Navy navbar")).toBe(null)
   })
 })
