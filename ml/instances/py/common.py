@@ -12,12 +12,16 @@ import re
 from pathlib import Path
 
 TAGS = ["INSTANCE", "REF", "COUNT", "RELATION", "ACTION", "ATTR", "NAME"]
+# How one span relates to another; see src/markup.ts. Index 0 is "no link".
+LINKS = ["mod", "in", "src", "dst", "obj", "same"]
+LINK_ID = {l: i + 1 for i, l in enumerate(LINKS)}
 LABELS = ["O"] + [f"{p}-{t}" for t in TAGS for p in ("B", "I")]
 LABEL_ID = {l: i for i, l in enumerate(LABELS)}
 
 # Keep in sync with src/words.ts.
 WORD = re.compile(r"[^\s.,;:!?()\[\]`\"]+|[.,;:!?()\[\]`\"]")
-MARK = re.compile(r"\[([^\[\]]+)\]\(([A-Z]+)\)")
+MARK = re.compile(r"\[([^\[\]]+)\]\(([A-Z]+)((?:\s+[a-z]+:[^()]+?)*)\)")
+ARC = re.compile(r"([a-z]+):(.+?)(?=\s+[a-z]+:|$)")
 
 DATA = Path(__file__).resolve().parent.parent / "data"
 
@@ -27,15 +31,39 @@ def words(text: str) -> list[tuple[int, int]]:
 
 
 def parse_markup(line: str) -> dict:
-    text, spans, last = "", [], 0
+    """Same format and rules as parse() in src/markup.ts. Each span may carry arcs: [[label, head span index], ...]."""
+    text, spans, pending, last = "", [], [], 0
     for m in MARK.finditer(line):
         if m.group(2) not in TAGS:
             raise ValueError(f"unknown tag {m.group(2)} in: {line}")
         text += line[last:m.start()]
+        for a in ARC.finditer((m.group(3) or "").strip()):
+            pending.append((len(spans), a.group(1), a.group(2).strip()))
         spans.append({"start": len(text), "end": len(text) + len(m.group(1)), "tag": m.group(2)})
         text += m.group(1)
         last = m.end()
+    said = [text[s["start"]:s["end"]] for s in spans]
+    for i, label, target in pending:
+        if label not in LINKS:
+            raise ValueError(f"unknown link {label} in: {line}")
+        head = resolve(said, i, target)
+        if head < 0:
+            raise ValueError(f'no span "{target}" for {label} in: {line}')
+        spans[i].setdefault("arcs", []).append([label, head])
     return {"text": text + line[last:], "spans": spans}
+
+
+def resolve(said: list[str], frm: int, target: str) -> int:
+    m = re.fullmatch(r"(.*)~(\d+)", target)
+    if m:
+        hits = [i for i, s in enumerate(said) if s == m.group(1)]
+        n = int(m.group(2)) - 1
+        return hits[n] if n < len(hits) else -1
+    best = -1
+    for i, s in enumerate(said):
+        if i != frm and s == target and (best < 0 or abs(i - frm) < abs(best - frm)):
+            best = i
+    return best
 
 
 def load(path: str | Path) -> list[dict]:
@@ -112,6 +140,41 @@ def score(gold: list[dict], pred: list[list[dict]]) -> dict:
         for g, p in zip(gold, pred)
     )
     return {"overall": f(total), "sentences_exact": round(exact / max(1, len(gold)), 3), **{t: f(c) for t, c in per.items()}}
+
+
+def score_links(gold: list[dict], pred: list[list[dict]]) -> dict:
+    """Link precision / recall / F1. A link counts when its label and both ends match gold spans exactly (tags aside)."""
+    per = {l: {"tp": 0, "fp": 0, "fn": 0} for l in LINKS}
+
+    def arcs(spans):
+        return {((s["start"], s["end"]), (spans[h]["start"], spans[h]["end"]), l) for s in spans for l, h, *_ in s.get("arcs", [])}
+
+    exact = 0
+    for g, p in zip(gold, pred):
+        ga, pa = arcs(g["spans"]), arcs(p)
+        exact += ga == pa
+        for l in LINKS:
+            gl = {a for a in ga if a[2] == l}
+            pl = {a for a in pa if a[2] == l}
+            per[l]["tp"] += len(gl & pl)
+            per[l]["fp"] += len(pl - gl)
+            per[l]["fn"] += len(gl - pl)
+
+    def f(c):
+        p = c["tp"] / (c["tp"] + c["fp"]) if c["tp"] + c["fp"] else 0.0
+        r = c["tp"] / (c["tp"] + c["fn"]) if c["tp"] + c["fn"] else 0.0
+        return {"p": round(p, 3), "r": round(r, 3), "f1": round(2 * p * r / (p + r), 3) if p + r else 0.0, "n": c["tp"] + c["fn"]}
+
+    total = {k: sum(c[k] for c in per.values()) for k in ("tp", "fp", "fn")}
+    return {"overall": f(total), "sentences_exact": round(exact / max(1, len(gold)), 3), **{l: f(c) for l, c in per.items()}}
+
+
+def print_links(name: str, s: dict) -> None:
+    o = s["overall"]
+    print(f"\n{name}: link F1 {o['f1']:.3f} (P {o['p']:.3f} R {o['r']:.3f}), all links right {s['sentences_exact']:.1%}")
+    for l in LINKS:
+        c = s[l]
+        print(f"  {l:<5} F1 {c['f1']:.3f}  P {c['p']:.3f}  R {c['r']:.3f}  (n={c['n']})")
 
 
 def print_score(name: str, s: dict) -> None:

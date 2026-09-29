@@ -36,6 +36,32 @@ A styled property after "with" is one ATTR span without its article (`a [card](I
 and so is the property an edit names (`[remove](ACTION) the [shadow](ATTR) from [@card](REF)`). A background is a
 property of what it's behind, not an instance.
 
+## Links
+
+Tags say what each piece is; links say how the pieces fit together. After the tag, a span lists its
+links as `label:target`, where target is the text of another span in the line (the nearest one with that
+text; `text~2` is the second occurrence). A span can have several links.
+
+```
+a [landing page](INSTANCE) with a [navbar](INSTANCE in:landing page) and [3](COUNT mod:cards) [cards](INSTANCE in:landing page)
+[api](INSTANCE src:writes to) [writes to](RELATION) [postgres](INSTANCE dst:writes to)
+[remove](ACTION) the [shadow](ATTR obj:remove mod:@card) from [@card](REF)
+a [checkout service](INSTANCE src:calls) [calls](RELATION) [stripe](INSTANCE dst:calls), then [it](REF same:checkout service src:emails) [emails](RELATION) ...
+```
+
+| Link | Meaning | Examples |
+|---|---|---|
+| `mod` | describes, counts or names it | `[red](ATTR mod:button)`, `[3](COUNT mod:cards)`, `[Login](NAME mod:it)`, `[thicker](ATTR mod:border)` |
+| `in` | sits inside it | `[hero](INSTANCE in:@landing-page)`, `[servers](INSTANCE in:stack)`, `[them](REF in:section)` |
+| `src` | where a relation starts | `[api](INSTANCE src:writes to)`, `[@a](REF src:connect)` |
+| `dst` | where a relation, a position or an edit goes | `[postgres](INSTANCE dst:writes to)`, `[@navbar](REF dst:above)`, `[clock](INSTANCE dst:change)` |
+| `obj` | what an edit acts on | `[@card](REF obj:remove)`, `[border](ATTR obj:make)` |
+| `same` | the same thing said again | `[it](REF same:checkout service)`, the `[footer](REF same:footer)` |
+
+`mod`, `in` and `same` have at most one target per span; `src`, `dst` and `obj` can have several
+("api writes to postgres and publishes to a queue"). The model scores every pair of spans at once, from
+two small vectors per token, so linking adds almost nothing to the run time.
+
 ## Files
 
 | Path | What |
@@ -44,10 +70,11 @@ property of what it's behind, not an instance.
 | `src/ui21st.ts` | Builds `data/ui-vocab.json` from the 21st.dev sitemap: ~1,400 component kinds (mapped to registry types where they fit) and their style words |
 | `data/ui-vocab.json` | That vocabulary, checked in so generating doesn't need the site. `unmapped` lists kinds with no registry type yet |
 | `src/generate.ts` | Seeded synthetic training data from the registry, 21st.dev vocabulary and templates; skips anything in gold |
-| `py/train.py` | Fine-tunes an encoder (default `jhu-clsp/ettin-encoder-32m`) and scores dev + gold |
+| `py/model.py` | The parser: the encoder's tag output plus the link vectors, and how links are decoded |
+| `py/train.py` | Fine-tunes an encoder (default `jhu-clsp/ettin-encoder-32m`) on tags and links; scores dev + gold |
 | `py/export.py` | ONNX fp32 + int8, tokenizer, label map, and a token-id check file |
 | `py/zero_shot.py` | Scores GLiNER models on gold with no training (accuracy + CPU latency) |
-| `src/tagger.ts` | The runtime: `Tagger.load(dir)` then `tagger.tag(text)` → spans with confidence |
+| `src/tagger.ts` | The runtime: `Tagger.load(dir)` then `tagger.tag(text)` → spans with confidence and their links |
 | `src/eval.ts` | Scores an export on gold and times it under Bun, the way the server would run it |
 | `bench/encoder_latency.py` | CPU speed of each model size (random weights), independent of accuracy |
 

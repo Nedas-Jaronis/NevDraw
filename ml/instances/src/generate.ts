@@ -9,7 +9,7 @@
  * stays honest.
  */
 import { REGISTRY, WIREFRAME_TYPES } from "../../../packages/shared/src/registry.ts"
-import { type Example, type Span, type Tag, parseFile, render } from "./markup.ts"
+import { type Example, type Link, type Span, type Tag, parseFile, render } from "./markup.ts"
 
 // ---------- randomness ----------
 
@@ -80,19 +80,43 @@ const PRONOUNS = ["it", "them", "this", "that", "these", "everything", "all of t
 
 // ---------- building sentences ----------
 
-type Part = string | [string, Tag]
-const T = (text: string, tag: Tag): Part => [text, tag]
+/** A span being built. Links point at other span objects and become indices in build(). */
+type Sp = { text: string; tag: Tag; arcs: [Link, Sp][] }
+type Part = string | Sp
+const T = (text: string, tag: Tag): Sp => ({ text, tag, arcs: [] })
+const isSp = (p: Part | undefined): p is Sp => typeof p === "object" && p !== null
+
+/** The thing a phrase is about: its INSTANCE (from np) or REF (from ref / pronoun). */
+function main(parts: Part[]): Sp {
+  const sp = parts.filter(isSp)
+  return sp.findLast((s) => s.tag === "INSTANCE") ?? sp.findLast((s) => s.tag === "REF") ?? sp.at(-1)!
+}
+/** Every new thing in a list of noun phrases. */
+const things = (parts: Part[]) => parts.filter(isSp).filter((s) => s.tag === "INSTANCE")
+function link(dep: Sp | Part[], label: Link, head: Sp | Part[]): void {
+  const d = Array.isArray(dep) ? main(dep) : dep
+  const h = Array.isArray(head) ? main(head) : head
+  if (d !== h) d.arcs.push([label, h])
+}
 
 function build(parts: Part[]): Example {
   let text = ""
   const spans: Span[] = []
+  const index = new Map<Sp, number>()
   for (const p of parts) {
-    const [s, tag] = typeof p === "string" ? [p, null] : p
+    const s = isSp(p) ? p.text : p
     if (s.length === 0) continue
     const glue = text.length === 0 || /^[,.:;!?)`]/.test(s) || /[(`]$/.test(text) ? "" : " "
     text += glue
-    if (tag) spans.push({ start: text.length, end: text.length + s.length, tag })
+    if (isSp(p)) {
+      index.set(p, spans.length)
+      spans.push({ start: text.length, end: text.length + s.length, tag: p.tag })
+    }
     text += s
+  }
+  for (const [sp, i] of index) {
+    const arcs = sp.arcs.flatMap(([label, head]) => (index.has(head) ? [{ label, head: index.get(head)! }] : []))
+    if (arcs.length) spans[i]!.arcs = arcs
   }
   return { text, spans }
 }
@@ -141,9 +165,10 @@ const refOrPronoun = () => (chance(0.2) ? pronoun() : ref())
 /** Styling only makes sense on interface elements. */
 const uiRefOrPronoun = () => (chance(0.2) ? pronoun() : ref(uiNoun()))
 
-/** A new thing: [det | count] [color / size] noun [called NAME]. */
+/** A new thing: [det | count] [color / size / look] noun [called NAME]; the words around it link to it. */
 function np(noun = anyNoun(), opts: { plural?: boolean; allowName?: boolean } = {}): Part[] {
   const parts: Part[] = []
+  const mods: Sp[] = []
   const many = (opts.plural ?? chance(0.2)) && !/s$/.test(noun)
   let head = noun
   if (many) {
@@ -160,12 +185,19 @@ function np(noun = anyNoun(), opts: { plural?: boolean; allowName?: boolean } = 
   if (chance(0.13)) parts.push(T(pick(COLORS), "ATTR"))
   else if (chance(0.07)) parts.push(T(pick(SIZES), "ATTR"))
   else if (chance(0.12)) parts.push(T(look(), "ATTR"))
-  parts.push(T(head.split(" ").map(typo).join(" "), "INSTANCE"))
-  if (opts.allowName !== false && !many && chance(0.07)) parts.push(pick(["called", "named", "titled"]), T(pick(NAMES), "NAME"))
+  mods.push(...parts.filter(isSp))
+  const inst = T(head.split(" ").map(typo).join(" "), "INSTANCE")
+  parts.push(inst)
+  if (opts.allowName !== false && !many && chance(0.07)) {
+    const name = T(pick(NAMES), "NAME")
+    parts.push(pick(["called", "named", "titled"]), name)
+    mods.push(name)
+  }
+  for (const m of mods) link(m, "mod", inst)
   // The article agrees with the word that follows it.
   const i = parts.indexOf("__ART__")
   const next = parts[i + 1]
-  if (i >= 0) parts[i] = next === undefined ? "a" : article(typeof next === "string" ? next : next[0])
+  if (i >= 0) parts[i] = next === undefined ? "a" : article(isSp(next) ? next.text : next)
   return parts
 }
 
@@ -183,132 +215,517 @@ function opener(): Part[] {
   return o ? [o] : []
 }
 
+// ---------- back-references ----------
+
+/** Architecture groups that get referred to later, sometimes two sharing a head noun ("user databases", "analytics databases"). */
+const GROUP_HEADS = ["server", "database", "load balancer", "worker", "cache", "queue", "api", "service", "node", "replica", "bucket", "client", "microservice", "lambda", "gateway"]
+const GROUP_MODS = ["user", "analytics", "orders", "billing", "primary", "backup", "read", "write", "legacy", "internal", "public", "auth", "payments", "search", "email"]
+/** Words that say "separate ones": part of the name, not a look. */
+const SEPARATE = ["independent", "individual", "separate", "dedicated"]
+const RESPELL: Record<string, string[]> = { database: ["data base", "db"], databases: ["data bases", "dbs"], "load balancer": ["loadbalancer", "lb"], "load balancers": ["loadbalancers", "lbs"], servers: ["server"], server: ["servers"] }
+
+/** A group as said when made: "5 server stack", "2 load balancers", "3 independent data bases". */
+type Group = { parts: Part[]; inst: Sp; head: string; mods: string[]; plural: boolean; stack: boolean }
+function group(head: string, mods: string[]): Group {
+  const stack = head === "server" && chance(0.25)
+  const plural = !stack && chance(0.75)
+  let name = [...mods, plural ? plural_(head) : head].join(" ")
+  if (stack) name = `${head} ${pick(["stack", "cluster", "pool", "farm"])}`
+  for (const [from, to] of Object.entries(RESPELL)) if (chance(0.15) && name.endsWith(from)) name = name.slice(0, -from.length) + pick(to)
+  const inst = T(name, "INSTANCE")
+  const parts: Part[] = []
+  if (plural || stack) {
+    const n = T(chance(0.7) ? String(between(2, 9)) : pick(["two", "three", "four", "five", "six"]), "COUNT")
+    link(n, "mod", inst)
+    parts.push(n)
+  } else parts.push(article(name))
+  parts.push(inst)
+  return { parts, inst, head, mods, plural, stack }
+}
+const plural_ = (w: string) => plural(w)
+
+/**
+ * How a later sentence names a group. The full name always works; a shorter one ("the databases",
+ * "the servers" for a server stack, a respelling) only when no other group shares the head noun.
+ */
+function refTo(g: Group, all: Group[]): string {
+  const shared = all.some((o) => o !== g && o.head === g.head)
+  const heads = g.stack ? [plural(g.head)] : [plural(g.head), g.head]
+  const full = g.inst.text
+  if (shared) return pick([full, [...g.mods.filter((m) => !SEPARATE.includes(m)), plural(g.head)].join(" ")].filter((x) => x.split(" ").length > 1 || !shared))
+  const r = rand()
+  if (r < 0.35) return full
+  if (r < 0.75) return pick(heads)
+  const h = pick(heads)
+  return RESPELL[h] ? pick(RESPELL[h]!) : h
+}
+
 // ---------- templates ----------
 
 const templates: (() => Part[])[] = [
   // a landing page with a navbar, a hero and 3 pricing cards
-  () => [...opener(), ...np(uiNoun(), { plural: false }), pick(WITH), ...list(uiNoun, between(1, 4))],
+  () => {
+    const box = np(uiNoun(), { plural: false })
+    const kids = list(uiNoun, between(1, 4))
+    for (const k of things(kids)) link(k, "in", box)
+    return [...opener(), ...box, pick(WITH), ...kids]
+  },
   // plain list of new things
   () => [...opener(), ...list(anyNoun, between(1, 3))],
   // a checklist: milk, eggs and bread
   () => {
     const items = Array.from({ length: between(2, 4) }, () => pick(ITEMS))
-    const parts: Part[] = [...opener(), ...np(pick(["checklist", "list", "dropdown", "navbar", "tabs", "form", "menu", "table"]), { plural: false, allowName: false }), ":"]
+    const box = np(pick(["checklist", "list", "dropdown", "navbar", "tabs", "form", "menu", "table"]), { plural: false, allowName: false })
+    const parts: Part[] = [...opener(), ...box, ":"]
     items.forEach((it, i) => {
       if (i > 0) parts.push(i === items.length - 1 ? "and" : ",")
-      parts.push(T(it, "NAME"))
+      const name = T(it, "NAME")
+      link(name, "mod", box)
+      parts.push(name)
     })
     return parts
   },
   // a row of 4 buttons
-  () => [...opener(), "a", T(pick(["row", "grid", "column", "row", "grid", "bento grid", "masonry grid", "2 column grid", "stack", "carousel"]), "ATTR"), "of", ...(chance(0.5) ? [T(String(between(2, 9)), "COUNT")] : []), T(plural(pick(PLURAL_OK)), "INSTANCE")],
+  () => {
+    const layout = T(pick(["row", "grid", "column", "row", "grid", "bento grid", "masonry grid", "2 column grid", "stack", "carousel"]), "ATTR")
+    const n = chance(0.5) ? [T(String(between(2, 9)), "COUNT")] : []
+    const inst = T(plural(pick(PLURAL_OK)), "INSTANCE")
+    link(layout, "mod", inst)
+    for (const c of n) link(c, "mod", inst)
+    return [...opener(), "a", layout, "of", ...n, inst]
+  },
   // a stack of 5 servers / a 5 server stack
-  () =>
-    chance(0.5)
-      ? [...opener(), "a", T(pick(["stack", "cluster", "pool", "group"]), "INSTANCE"), "of", T(String(between(2, 9)), "COUNT"), T(plural(pick(["server", "worker", "database", "node", "replica", "instance", "cache"])), "INSTANCE")]
-      : [...opener(), "a", T(String(between(2, 9)), "COUNT"), T(`${pick(["server", "worker", "database", "node"])} ${pick(["stack", "cluster", "pool"])}`, "INSTANCE")],
+  () => {
+    if (chance(0.5)) {
+      const group = T(pick(["stack", "cluster", "pool", "group"]), "INSTANCE")
+      const n = T(String(between(2, 9)), "COUNT")
+      const kids = T(plural(pick(["server", "worker", "database", "node", "replica", "instance", "cache"])), "INSTANCE")
+      link(n, "mod", kids)
+      link(kids, "in", group)
+      return [...opener(), "a", group, "of", n, kids]
+    }
+    const n = T(String(between(2, 9)), "COUNT")
+    const group = T(`${pick(["server", "worker", "database", "node"])} ${pick(["stack", "cluster", "pool"])}`, "INSTANCE")
+    link(n, "mod", group)
+    return [...opener(), "a", n, group]
+  },
   // add a hero to @landing-page / inside the pricing card
-  () => [pick(["add", "put", "embed", "insert", "place", "drop"]), ...np(uiNoun(), { plural: chance(0.15) }), pick(["to", "in", "inside", "into", "on"]), ...ref(uiNoun())],
+  () => {
+    const kid = np(uiNoun(), { plural: chance(0.15) })
+    const box = ref(uiNoun())
+    link(kid, "in", box)
+    return [pick(["add", "put", "embed", "insert", "place", "drop"]), ...kid, pick(["to", "in", "inside", "into", "on"]), ...box]
+  },
   // add a footer at the bottom of @landing-page
-  () => [pick(["add", "put", ""]), ...np(uiNoun()), T(pick(POS_END.slice(0, 4)), "ATTR"), "of", ...ref(uiNoun())],
+  () => {
+    const kid = np(uiNoun())
+    const where = T(pick(POS_END.slice(0, 4)), "ATTR")
+    const box = ref(uiNoun())
+    link(kid, "in", box)
+    link(where, "mod", kid)
+    return [pick(["add", "put", ""]), ...kid, where, "of", ...box]
+  },
   // a banner above @navbar / a redis cache between {api} and {db}
-  () =>
-    chance(0.7)
-      ? [...opener(), ...np(uiNoun()), T(pick(POS_REL), "ATTR"), ...ref(uiNoun())]
-      : [...opener(), ...np(anyNoun()), T("between", "ATTR"), ...ref(), "and", ...ref()],
+  () => {
+    if (chance(0.7)) {
+      const it = np(uiNoun())
+      const where = T(pick(POS_REL), "ATTR")
+      const other = ref(uiNoun())
+      link(where, "mod", it)
+      link(other, "dst", where)
+      return [...opener(), ...it, where, ...other]
+    }
+    const it = np(anyNoun())
+    const where = T("between", "ATTR")
+    const a = ref()
+    const b = ref()
+    link(where, "mod", it)
+    link(a, "dst", where)
+    link(b, "dst", where)
+    return [...opener(), ...it, where, ...a, "and", ...b]
+  },
   // a table of timers with increments of 15
-  () => [...opener(), ...np(pick(["table", "list", "timer", "grid view", "slider"]), { plural: false }), ...(chance(0.5) ? ["of", T(plural(pick(["timer", "clock", "reminder", "event"])), "INSTANCE")] : []), pick(["with", "in", ""]), T(pick(SEQUENCES), "ATTR")],
+  () => {
+    const box = np(pick(["table", "list", "timer", "grid view", "slider"]), { plural: false })
+    const kids = chance(0.5) ? [T(plural(pick(["timer", "clock", "reminder", "event"])), "INSTANCE")] : []
+    for (const k of kids) link(k, "in", box)
+    const seq = T(pick(SEQUENCES), "ATTR")
+    link(seq, "mod", kids[0] ?? box)
+    return [...opener(), ...box, ...(kids.length ? ["of", ...kids] : []), pick(["with", "in", ""]), seq]
+  },
   // api writes to postgres and publishes to a queue
   () => {
-    const parts: Part[] = [...opener(), ...(chance(0.25) ? ref(archNoun()) : np(archNoun(), { plural: chance(0.1) }))]
+    const first = chance(0.25) ? ref(archNoun()) : np(archNoun(), { plural: chance(0.1) })
+    const parts: Part[] = [...opener(), ...first]
+    let prev = first
     const hops = between(1, 3)
     for (let i = 0; i < hops; i++) {
-      if (i > 0) parts.push(...pick<Part[]>([["and"], ["which"], [",", "then"], ["and then"], [",", "which then"], [".", T("it", "REF")]]))
-      parts.push(T(pick(RELATIONS), "RELATION"))
-      parts.push(...(chance(0.25) ? ref(archNoun()) : np(archNoun())))
+      let subject = first
+      if (i > 0) {
+        const join = pick<Part[]>([["and"], ["which"], [",", "then"], ["and then"], [",", "which then"], [".", "__IT__"]])
+        // "which" continues from the last target; "and" / "then" / "it" keep the first subject.
+        if (join.includes("which") || join.includes(", which then")) subject = prev
+        if (join.includes("__IT__")) {
+          const it = T("it", "REF")
+          link(it, "same", first)
+          subject = [it]
+          parts.push(".", it)
+        } else parts.push(...join)
+      }
+      const rel = T(pick(RELATIONS), "RELATION")
+      const target = chance(0.25) ? ref(archNoun()) : np(archNoun())
+      link(subject, "src", rel)
+      link(target, "dst", rel)
+      parts.push(rel, ...target)
+      prev = target
     }
     return parts
   },
   // a web app and a mobile app both call an api gateway
-  () => [...np(archNoun()), "and", ...np(archNoun()), pick(["both", "", "each"]), T(pick(RELATIONS_PL), "RELATION"), ...np(archNoun())],
+  () => {
+    const a = np(archNoun())
+    const b = np(archNoun())
+    const rel = T(pick(RELATIONS_PL), "RELATION")
+    const c = np(archNoun())
+    link(a, "src", rel)
+    link(b, "src", rel)
+    link(c, "dst", rel)
+    return [...a, "and", ...b, pick(["both", "", "each"]), rel, ...c]
+  },
   // 5 servers connected to 2 load balancers
-  () => [...opener(), T(String(between(2, 9)), "COUNT"), T(plural(pick(["server", "worker", "microservice", "client", "lambda"])), "INSTANCE"), T(pick(["connected to", "that connect to", "behind", "talking to", "that go through"]).replace(/^that /, ""), "RELATION"), ...np(archNoun(), { plural: chance(0.5) })],
+  () => {
+    const n = T(String(between(2, 9)), "COUNT")
+    const who = T(plural(pick(["server", "worker", "microservice", "client", "lambda"])), "INSTANCE")
+    const rel = T(pick(["connected to", "that connect to", "behind", "talking to", "that go through"]).replace(/^that /, ""), "RELATION")
+    const to = np(archNoun(), { plural: chance(0.5) })
+    link(n, "mod", who)
+    link(who, "src", rel)
+    link(to, "dst", rel)
+    return [...opener(), n, who, rel, ...to]
+  },
   // connect @api to @db / connect the api and postgres
-  () => [T(pick(["connect", "link", "wire", "hook up"]), "RELATION"), ...ref(), pick(["to", "and", "with"]), ...ref()],
+  () => {
+    const rel = T(pick(["connect", "link", "wire", "hook up"]), "RELATION")
+    const a = ref()
+    const b = ref()
+    link(a, "src", rel)
+    link(b, "dst", rel)
+    return [rel, ...a, pick(["to", "and", "with"]), ...b]
+  },
   // remove / delete
   () => {
-    const parts: Part[] = [T(pick(["remove", "delete", "drop", "get rid of", "kill", "erase"]), "ACTION"), ...refOrPronoun()]
-    if (chance(0.3)) parts.push("and", ...ref())
+    const act = T(pick(["remove", "delete", "drop", "get rid of", "kill", "erase"]), "ACTION")
+    const a = refOrPronoun()
+    link(a, "obj", act)
+    const parts: Part[] = [act, ...a]
+    if (chance(0.3)) {
+      const b = ref()
+      link(b, "obj", act)
+      parts.push("and", ...b)
+    }
     return parts
   },
-  // move @footer to the top / above @hero
-  () => [T(pick(["move", "put", "place", "shift"]), "ACTION"), ...refOrPronoun(), ...(chance(0.5) ? ["to", T(pick(["the top", "the bottom", "the left", "the right", "the end", "the start"]), "ATTR")] : chance(0.5) ? [T(pick(POS_REL), "ATTR"), ...ref()] : [pick(["into", "inside"]), ...ref()])],
+  // move @footer to the top / above @hero / into @section
+  () => {
+    const act = T(pick(["move", "put", "place", "shift"]), "ACTION")
+    const it = refOrPronoun()
+    link(it, "obj", act)
+    const r = rand()
+    if (r < 0.5) {
+      const where = T(pick(["the top", "the bottom", "the left", "the right", "the end", "the start"]), "ATTR")
+      link(where, "mod", it)
+      return [act, ...it, "to", where]
+    }
+    if (r < 0.75) {
+      const where = T(pick(POS_REL), "ATTR")
+      const other = ref()
+      link(where, "mod", it)
+      link(other, "dst", where)
+      return [act, ...it, where, ...other]
+    }
+    const box = ref()
+    link(it, "in", box)
+    return [act, ...it, pick(["into", "inside"]), ...box]
+  },
   // rename / call it NAME
   () => {
     const r = rand()
-    if (r < 0.35) return [T("rename", "ACTION"), ...refOrPronoun(), "to", T(pick(NAMES), "NAME")]
-    if (r < 0.65) return [T("call", "ACTION"), ...refOrPronoun(), T(pick(NAMES), "NAME")]
-    return [T(pick(["change", "set"]), "ACTION"), "the", pick(["name", "label", "title"]), "of", ...refOrPronoun(), "to", T(pick(NAMES), "NAME")]
+    const it = refOrPronoun()
+    const name = T(pick(NAMES), "NAME")
+    link(name, "mod", it)
+    const act = T(r < 0.35 ? "rename" : r < 0.65 ? "call" : pick(["change", "set"]), "ACTION")
+    link(it, "obj", act)
+    if (r < 0.35) return [act, ...it, "to", name]
+    if (r < 0.65) return [act, ...it, name]
+    return [act, "the", pick(["name", "label", "title"]), "of", ...it, "to", name]
   },
   // make @x red / color everything navy
   () => {
     const r = rand()
-    if (r < 0.4) return [T(pick(["make", "turn", "paint"]), "ACTION"), ...refOrPronoun(), T(pick([...COLORS, ...SIZES]), "ATTR")]
-    if (r < 0.7) return [T(pick(["color", "recolor", "colour"]), "ACTION"), ...refOrPronoun(), T(pick(COLORS), "ATTR")]
-    return [T("change", "ACTION"), ...refOrPronoun(), "to", T(pick(COLORS), "ATTR")]
+    const it = refOrPronoun()
+    const value = T(r < 0.4 ? pick([...COLORS, ...SIZES]) : pick(COLORS), "ATTR")
+    link(value, "mod", it)
+    const act = T(r < 0.4 ? pick(["make", "turn", "paint"]) : r < 0.7 ? pick(["color", "recolor", "colour"]) : "change", "ACTION")
+    link(it, "obj", act)
+    if (r < 0.7) return [act, ...it, value]
+    return [act, ...it, "to", value]
   },
   // change it to a clock / turn this into a list of contacts, 4 of them
-  () =>
-    chance(0.7)
-      ? [T(pick(["change", "turn", "convert", "make"]), "ACTION"), ...(chance(0.8) ? refOrPronoun() : []), pick(["to", "into"]), ...np(uiNoun(), { plural: false, allowName: false })]
-      : [T(pick(["change", "turn"]), "ACTION"), ...pronoun(), pick(["to", "into"]), "a", T(pick(["list", "table", "grid view"]), "INSTANCE"), "of", T(plural(pick(["contact", "event", "goal", "reminder", "card", "habit"])), "INSTANCE"), ...(chance(0.6) ? [",", T(String(between(2, 8)), "COUNT"), "of them"] : [])],
+  () => {
+    const act = T(pick(["change", "turn", "convert", "make"]), "ACTION")
+    if (chance(0.7)) {
+      const it = chance(0.8) ? refOrPronoun() : []
+      if (it.length) link(it, "obj", act)
+      const to = np(uiNoun(), { plural: false, allowName: false })
+      link(to, "dst", act)
+      return [act, ...it, pick(["to", "into"]), ...to]
+    }
+    const it = pronoun()
+    link(it, "obj", act)
+    const box = T(pick(["list", "table", "grid view"]), "INSTANCE")
+    link(box, "dst", act)
+    const kids = T(plural(pick(["contact", "event", "goal", "reminder", "card", "habit"])), "INSTANCE")
+    link(kids, "in", box)
+    const n = chance(0.6) ? [T(String(between(2, 8)), "COUNT")] : []
+    for (const c of n) link(c, "mod", kids)
+    return [act, ...it, pick(["to", "into"]), "a", box, "of", kids, ...(n.length ? [",", ...n, "of them"] : [])]
+  },
   // disconnect @a from @b / from everything
-  () => [T(pick(["disconnect", "unlink", "detach"]), "ACTION"), ...(chance(0.8) ? refOrPronoun() : []), pick(["from", "and", "from"]), ...(chance(0.2) ? [T("everything", "REF")] : ref())],
+  () => {
+    const act = T(pick(["disconnect", "unlink", "detach"]), "ACTION")
+    const a = chance(0.8) ? refOrPronoun() : []
+    const join = pick(["from", "and", "from"])
+    const b = chance(0.2) ? [T("everything", "REF")] : ref()
+    if (a.length) link(a, "obj", act)
+    link(b, join === "and" && a.length ? "obj" : "dst", act)
+    return [act, ...a, join, ...b]
+  },
   // group them into a section
-  () => [T(pick(["group", "wrap", "put", "combine"]), "ACTION"), ...(chance(0.5) ? pronoun() : [...ref(), "and", ...ref()]), pick(["into", "in"]), ...np(pick(["section", "box", "card", "container", "panel", "group"]), { plural: false, allowName: false })],
+  () => {
+    const act = T(pick(["group", "wrap", "put", "combine"]), "ACTION")
+    const members = chance(0.5) ? [pronoun()] : [ref(), ref()]
+    const box = np(pick(["section", "box", "card", "container", "panel", "group"]), { plural: false, allowName: false })
+    link(box, "dst", act)
+    for (const m of members) {
+      link(m, "obj", act)
+      link(m, "in", box)
+    }
+    const who = members.length === 1 ? members[0]! : [...members[0]!, "and", ...members[1]!]
+    return [act, ...who, pick(["into", "in"]), ...box]
+  },
   // @contact-form add a phone field / change phone to mobile / remove the message field
   () => {
     const r = rand()
     const who = ref(pick(["contact form", "signup form", "login form", "checkout form", "settings page"]))
-    if (r < 0.35) return [...who, "add", ...np(`${pick(ITEMS)} ${pick(["field", "input"])}`, { plural: false, allowName: false }), ...(chance(0.4) ? [T(pick(["after", "before"]), "ATTR"), T(pick(ITEMS), "REF")] : [])]
-    if (r < 0.7) return [...who, T("change", "ACTION"), T(pick(ITEMS), "NAME"), "to", T(pick(ITEMS), "NAME")]
-    return [...who, T(pick(["remove", "delete"]), "ACTION"), "the", T(`${pick(ITEMS)} ${pick(["field", "input"])}`, "REF")]
+    if (r < 0.35) {
+      const field = np(`${pick(ITEMS)} ${pick(["field", "input"])}`, { plural: false, allowName: false })
+      link(field, "in", who)
+      const after: Part[] = []
+      if (chance(0.4)) {
+        const where = T(pick(["after", "before"]), "ATTR")
+        const other = T(pick(ITEMS), "REF")
+        link(where, "mod", field)
+        link(other, "dst", where)
+        after.push(where, other)
+      }
+      return [...who, "add", ...field, ...after]
+    }
+    if (r < 0.7) {
+      const act = T("change", "ACTION")
+      const from = T(pick(ITEMS), "NAME")
+      const to = T(pick(ITEMS), "NAME")
+      link(from, "obj", act)
+      link(from, "mod", who)
+      link(to, "dst", act)
+      return [...who, act, from, "to", to]
+    }
+    const act = T(pick(["remove", "delete"]), "ACTION")
+    const field = T(`${pick(ITEMS)} ${pick(["field", "input"])}`, "REF")
+    link(field, "obj", act)
+    link(field, "in", who)
+    return [...who, act, "the", field]
   },
   // add a note to @hero saying copy from marketing
-  () => (chance(0.5) ? ["add a note to", ...ref(), "saying", T(pick(NOTES), "NAME")] : [T("annotate", "ACTION"), ...ref(), ":", T(pick(NOTES), "NAME")]),
+  () => {
+    const it = ref()
+    const note = T(pick(NOTES), "NAME")
+    link(note, "mod", it)
+    if (chance(0.5)) return ["add a note to", ...it, "saying", note]
+    const act = T("annotate", "ACTION")
+    link(it, "obj", act)
+    return [act, ...it, ":", note]
+  },
   // a database called postgres
-  () => [...opener(), ...np(anyNoun(), { plural: false, allowName: false }), pick(["called", "named", "titled"]), T(pick(NAMES), "NAME")],
+  () => {
+    const it = np(anyNoun(), { plural: false, allowName: false })
+    const name = T(pick(NAMES), "NAME")
+    link(name, "mod", it)
+    return [...opener(), ...it, pick(["called", "named", "titled"]), name]
+  },
   // a 21st.dev component, with its own style words: an animated gradient hero section
   () => {
     const c = pick(STYLED_21)
-    const parts: Part[] = [...opener(), "__ART__", T(c.style.join(" "), "ATTR"), T(c.kind, "INSTANCE")]
-    parts[parts.indexOf("__ART__")] = article(c.style[0]!)
-    if (chance(0.4)) parts.push(pick(["in", "inside", "on", "for"]), ...ref(uiNoun()))
+    const style = T(c.style.join(" "), "ATTR")
+    const inst = T(c.kind, "INSTANCE")
+    link(style, "mod", inst)
+    const parts: Part[] = [...opener(), article(c.style[0]!), style, inst]
+    if (chance(0.4)) {
+      const box = ref(uiNoun())
+      link(inst, "in", box)
+      parts.push(pick(["in", "inside", "on", "for"]), ...box)
+    }
     return parts
   },
   // a card with a dashed border and a soft shadow / a hero with a video background
   () => {
-    const parts: Part[] = [...opener(), ...np(uiNoun(), { allowName: false }), pick(["with", "with", "that has", "featuring"]), ...(chance(0.6) ? ["a"] : []), T(prop(), "ATTR")]
-    if (chance(0.35)) parts.push(pick(["and", ","]), ...(chance(0.5) ? ["a"] : []), T(prop(), "ATTR"))
-    if (chance(0.25)) parts.push(pick(["with", "and"]), ...list(uiNoun, between(1, 2)))
+    const it = np(uiNoun(), { allowName: false })
+    const p1 = T(prop(), "ATTR")
+    link(p1, "mod", it)
+    const parts: Part[] = [...opener(), ...it, pick(["with", "with", "that has", "featuring"]), ...(chance(0.6) ? ["a"] : []), p1]
+    if (chance(0.35)) {
+      const p2 = T(prop(), "ATTR")
+      link(p2, "mod", it)
+      parts.push(pick(["and", ","]), ...(chance(0.5) ? ["a"] : []), p2)
+    }
+    if (chance(0.25)) {
+      const kids = list(uiNoun, between(1, 2))
+      for (const k of things(kids)) link(k, "in", it)
+      parts.push(pick(["with", "and"]), ...kids)
+    }
     return parts
   },
   // give the hero a gradient background / add a 2px navy border to @card
-  () =>
-    chance(0.5)
-      ? [T(pick(["give", "set"]), "ACTION"), ...uiRefOrPronoun(), ...(chance(0.6) ? ["a"] : []), T(prop(), "ATTR")]
-      : [pick(["add", "put", "apply"]), ...(chance(0.6) ? ["a"] : []), T(prop(), "ATTR"), pick(["to", "on"]), ...uiRefOrPronoun()],
+  () => {
+    const it = uiRefOrPronoun()
+    const p = T(prop(), "ATTR")
+    link(p, "mod", it)
+    if (chance(0.5)) {
+      const act = T(pick(["give", "set"]), "ACTION")
+      link(it, "obj", act)
+      return [act, ...it, ...(chance(0.6) ? ["a"] : []), p]
+    }
+    return [pick(["add", "put", "apply"]), ...(chance(0.6) ? ["a"] : []), p, pick(["to", "on"]), ...it]
+  },
   // remove the shadow from @card / make the border of the card thicker / change the font of @hero to Inter
   () => {
+    const it = uiRefOrPronoun()
     const head = pick(PROP_HEADS)
     const r = rand()
-    if (r < 0.35) return [T(pick(["remove", "delete", "drop", "get rid of"]), "ACTION"), "the", T(head, "ATTR"), "from", ...uiRefOrPronoun()]
-    if (r < 0.65) return [T(pick(["make", "turn"]), "ACTION"), "the", T(head, "ATTR"), "of", ...uiRefOrPronoun(), T(pick([...COLORS, "thicker", "thinner", "bigger", "smaller", "softer", "darker", "lighter", "rounder", "bolder"]), "ATTR")]
-    if (head === "font") return [T("change", "ACTION"), "the", T("font", "ATTR"), "of", ...uiRefOrPronoun(), "to", T(pick(FONTS), "NAME")]
-    return [T(pick(["change", "set"]), "ACTION"), "the", T(head, "ATTR"), "of", ...uiRefOrPronoun(), "to", T(pick([...COLORS, prop()]), "ATTR")]
+    const prop_ = T(head, "ATTR")
+    link(prop_, "mod", it)
+    const act = T(r < 0.35 ? pick(["remove", "delete", "drop", "get rid of"]) : r < 0.65 ? pick(["make", "turn"]) : head === "font" ? "change" : pick(["change", "set"]), "ACTION")
+    link(prop_, "obj", act)
+    if (r < 0.35) return [act, "the", prop_, "from", ...it]
+    if (r < 0.65) {
+      const value = T(pick([...COLORS, "thicker", "thinner", "bigger", "smaller", "softer", "darker", "lighter", "rounder", "bolder"]), "ATTR")
+      link(value, "mod", prop_)
+      return [act, "the", prop_, "of", ...it, value]
+    }
+    const value = head === "font" ? T(pick(FONTS), "NAME") : T(pick([...COLORS, prop()]), "ATTR")
+    link(value, "mod", prop_)
+    return [act, "the", prop_, "of", ...it, "to", value]
   },
   // make the navbar sticky / make the buttons pill shaped
-  () => [T(pick(["make", "turn"]), "ACTION"), ...uiRefOrPronoun(), T(look(), "ATTR")],
+  () => {
+    const act = T(pick(["make", "turn"]), "ACTION")
+    const it = uiRefOrPronoun()
+    const value = T(look(), "ATTR")
+    link(it, "obj", act)
+    link(value, "mod", it)
+    return [act, ...it, value]
+  },
+  // add a header, cta, footer and hero, and put the footer at the top / the footer goes last
+  () => {
+    const box = chance(0.5) ? np(uiNoun(), { plural: false }) : []
+    const kids = list(uiNoun, between(2, 4))
+    const made = things(kids)
+    if (box.length) for (const k of made) link(k, "in", box)
+    const target = pick(made)
+    const again = T(target.text, "REF")
+    link(again, "same", target)
+    const parts: Part[] = [...opener(), ...box, ...(box.length ? [pick(WITH)] : []), ...kids, pick([",", ". then", ", and", ". also"])]
+    if (chance(0.3)) {
+      const where = T(pick(["last", "first", "at the end", "at the top", "on top", "at the bottom"]), "ATTR")
+      link(where, "mod", again)
+      return [...parts, "the", again, pick(["goes", "should be", "comes", "is"]), where]
+    }
+    const act = T(pick(["put", "move", "place"]), "ACTION")
+    link(again, "obj", act)
+    const other = made.find((m) => m !== target)
+    if (other && chance(0.5)) {
+      const where = T(pick(["before", "after", "above", "below"]), "ATTR")
+      const otherAgain = T(other.text, "REF")
+      link(otherAgain, "same", other)
+      link(where, "mod", again)
+      link(otherAgain, "dst", where)
+      return [...parts, act, "the", again, where, "the", otherAgain]
+    }
+    const where = T(pick(["at the top", "at the bottom", "first", "last", "at the end"]), "ATTR")
+    link(where, "mod", again)
+    return [...parts, act, "the", again, where]
+  },
+  // 5 server stack with 2 load balancers and 5 independent databases. the servers connect to the load balancers, and ...
+  () => {
+    const n = between(2, 3)
+    const heads: string[] = []
+    while (heads.length < n) {
+      const h = pick(GROUP_HEADS)
+      if (!heads.includes(h) || chance(0.15)) heads.push(h)
+    }
+    const groups = heads.map((h, i) => {
+      const twin = heads.indexOf(h) !== i || heads.lastIndexOf(h) !== i
+      const mods = twin ? [pick(GROUP_MODS)] : chance(0.25) ? [pick(SEPARATE)] : chance(0.15) ? [pick(GROUP_MODS)] : []
+      return group(h, mods)
+    })
+    // Twins must differ by their modifier.
+    if (new Set(groups.map((g) => g.inst.text)).size < groups.length) return [...opener(), ...groups[0]!.parts]
+    // Architecture "with" lists things side by side: no "in" links.
+    const parts: Part[] = [...opener()]
+    groups.forEach((g, i) => {
+      if (i > 0) parts.push(...(i === 1 ? [pick(["with", "and", ",", "plus", "along with"])] : i === groups.length - 1 ? ["and"] : [","]))
+      parts.push(...g.parts)
+    })
+    if (chance(0.15)) return parts
+    parts.push(pick([".", ". then", ", then", ";", "."]))
+    const hops = Math.min(groups.length - 1, between(1, 2))
+    for (let i = 0; i < hops; i++) {
+      const a = groups[i]!
+      const b = groups[i + 1]!
+      if (i > 0) parts.push(pick([", and", ". and then", ". then", ", then", "."]))
+      const rel = T(pick(["connect to", "connects to", "talk to", "send to", "write to", "go through", "call", "point to", "are connected to", "feed into", "route to", "depend on"]), "RELATION")
+      const ra = T(refTo(a, groups), "REF")
+      const rb = T(refTo(b, groups), "REF")
+      link(ra, "same", a.inst)
+      link(rb, "same", b.inst)
+      link(ra, "src", rel)
+      link(rb, "dst", rel)
+      parts.push(...(chance(0.85) ? ["the"] : pick([["all"], ["all the"], ["both"], ["each of the"]])), ra, rel, "the", rb)
+    }
+    return parts
+  },
+  // a pricing card and a profile card. make the pricing card blue / put the cta inside the hero
+  () => {
+    const nouns = [uiNoun(), uiNoun()]
+    if (nouns[0] === nouns[1]) return np(nouns[0])
+    const made = nouns.map((x) => np(x, { plural: false, allowName: false }))
+    const parts: Part[] = [...opener(), ...made[0]!, pick(["and", ",", "plus"]), ...made[1]!, pick([".", ", then", ". now", ";"])]
+    const target = pick([0, 1])
+    const again = T(main(made[target]!).text, "REF")
+    link(again, "same", made[target]!)
+    if (chance(0.6)) {
+      const act = T(pick(["make", "color", "turn", "paint"]), "ACTION")
+      const value = T(pick([...COLORS, ...SIZES, look()]), "ATTR")
+      link(again, "obj", act)
+      link(value, "mod", again)
+      return [...parts, act, "the", again, value]
+    }
+    const other = T(main(made[1 - target]!).text, "REF")
+    link(other, "same", made[1 - target]!)
+    const act = T(pick(["put", "move", "place"]), "ACTION")
+    link(again, "obj", act)
+    link(again, "in", other)
+    return [...parts, act, "the", again, pick(["inside", "into", "in"]), "the", other]
+  },
   // noise: nothing to tag
   () => [pick(["big brand moment", "hmm", "ok so", "let me think", "not sure yet", "something like this", "wait", "undo that", "looks good", "nice", "hello", "and then", "with the", "maybe later"])],
 ]
@@ -324,12 +741,18 @@ function sentence(): Part[] {
 
 function finish(ex: Example): Example {
   let { text, spans } = ex
-  // Typing in progress: cut at a word boundary. The last span keeps what's left.
+  // Typing in progress: cut at a word boundary. The last span keeps what's left; links to cut spans go.
   if (chance(0.12) && text.includes(" ")) {
     const cuts = [...text.matchAll(/ /g)].map((m) => m.index!)
     const cut = pick(cuts)
     text = text.slice(0, cut)
-    spans = spans.filter((s) => s.start < cut).map((s) => ({ ...s, end: Math.min(s.end, cut) }))
+    const kept = spans.flatMap((s, i) => (s.start < cut ? [i] : []))
+    const at = new Map(kept.map((old, i) => [old, i]))
+    spans = kept.map((i) => {
+      const s = spans[i]!
+      const arcs = (s.arcs ?? []).flatMap((a) => (at.has(a.head) ? [{ ...a, head: at.get(a.head)! }] : []))
+      return { start: s.start, end: Math.min(s.end, cut), tag: s.tag, ...(arcs.length ? { arcs } : {}) }
+    })
   }
   if (chance(0.15)) text = text[0]!.toUpperCase() + text.slice(1)
   if (chance(0.08) && !/[.!?]$/.test(text)) text += pick([".", "!", "?"])
@@ -358,10 +781,17 @@ while (out.length < count && tries++ < count * 20) {
 }
 
 const devN = Math.round(out.length * 0.05)
-const jsonl = (xs: Example[]) => xs.map((x) => JSON.stringify(x)).join("\n") + "\n"
+// JSONL keeps links as [label, head index] pairs, the shape py/common.py reads.
+const row = (x: Example) => ({ text: x.text, spans: x.spans.map((s) => ({ start: s.start, end: s.end, tag: s.tag, ...(s.arcs ? { arcs: s.arcs.map((a) => [a.label, a.head]) } : {}) })) })
+const jsonl = (xs: Example[]) => xs.map((x) => JSON.stringify(row(x))).join("\n") + "\n"
 await Bun.write(new URL("dev.jsonl", dir), jsonl(out.slice(0, devN)))
 await Bun.write(new URL("train.jsonl", dir), jsonl(out.slice(devN)))
 await Bun.write(new URL("train.sample.txt", dir), out.slice(devN, devN + 300).map(render).join("\n") + "\n")
 const byTag: Record<string, number> = {}
-for (const x of out) for (const s of x.spans) byTag[s.tag] = (byTag[s.tag] ?? 0) + 1
-console.log(`wrote ${out.length - devN} train + ${devN} dev examples (${gold.size} gold sentences excluded)`, byTag)
+const byLink: Record<string, number> = {}
+for (const x of out)
+  for (const s of x.spans) {
+    byTag[s.tag] = (byTag[s.tag] ?? 0) + 1
+    for (const a of s.arcs ?? []) byLink[a.label] = (byLink[a.label] ?? 0) + 1
+  }
+console.log(`wrote ${out.length - devN} train + ${devN} dev examples (${gold.size} gold sentences excluded)`, byTag, byLink)
