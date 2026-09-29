@@ -13,7 +13,8 @@ import { env, envNumber } from "../env.ts"
  *   off     not loaded; the board reads text exactly as before
  *   shadow  loaded; every commit is also read by the model and logged next to what the board made
  *           (data/parser-shadow.jsonl), but nothing on the board changes
- *   on      reserved for when the model's reading drives drafts
+ *   on      the model decides what sits inside what in every draft (parse/nesting.ts); everything
+ *           else still comes from today's reading. Commits are shadow-logged too
  *
  * Default: shadow when the model files are there (`bun run fetch-model`), off otherwise.
  */

@@ -40,6 +40,8 @@ const spring = { type: "spring", stiffness: 420, damping: 36 } as const
 export const HighlightContext = createContext<{ handle: string | null; color: string; target?: string | null }>({ handle: null, color: "#000" })
 
 const isContainer = (n: BoardNode) => REGISTRY[n.type].container
+/** Media a leaf can hold without turning into a layout of parts (a hero's picture, a card's chart). */
+const EMBEDDABLE_ONLY = new Set<string>(["image", "video", "chart", "map", "avatar"])
 
 /**
  * A top-level element, absolutely positioned on the board. Drafts render
@@ -236,6 +238,24 @@ function Body({ item, tree, compact = false }: { item: Item; tree: Tree; compact
         </div>
       )
     }
+    // A hero or navbar the text filled ("a hero with a headline and two buttons"): its own parts
+    // replace the placeholder, laid out inside its box (a hero centered, a navbar in a row).
+    const filled = embedded.length > 0 && (node.type === "hero" || node.type === "navbar") && embedded.some((k) => !EMBEDDABLE_ONLY.has(k.node.type))
+    if (filled)
+      return (
+        <div>
+          <Title node={node} showAuthor={showAuthor} compact={compact} />
+          <div
+            className={`mt-2.5 flex gap-2 rounded-xl bg-[var(--a)]/[0.08] p-3 ${node.type === "hero" ? "flex-col items-stretch" : "flex-row flex-wrap items-center [&>*]:min-w-[120px] [&>*]:flex-1"}`}
+          >
+            <AnimatePresence initial={false}>
+              {embedded.map((k) => (
+                <ChildView key={k.node.id} item={k} tree={tree} compact />
+              ))}
+            </AnimatePresence>
+          </div>
+        </div>
+      )
     return (
       <div>
         <Wire node={node} showAuthor={showAuthor} compact={compact} draft={draft} />

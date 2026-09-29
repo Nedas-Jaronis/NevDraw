@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test"
-import type { BoardNode } from "@rtw/shared"
+import type { BoardNode, EntryGraph } from "@rtw/shared"
 import { parse as markup, Tagger, type TaggedSpan } from "@rtw/parser"
 import { existsSync } from "node:fs"
+import { interpretOffline } from "../src/engine/index.ts"
+import { sensibleParents } from "../src/engine/materialize.ts"
+import { nestFromModel } from "../src/parse/nesting.ts"
 import { DEFAULT_MODEL_DIR, norm, shadowEntry } from "../src/parse/Parser.ts"
 
 /** Spans from markup, as if the model had read them (confidence 1). */
@@ -59,5 +62,59 @@ describe.skipIf(!existsSync(`${DEFAULT_MODEL_DIR}/model.onnx`))("the fetched mod
     const said = (i: number) => text.slice(spans[i]!.start, spans[i]!.end)
     const inside = spans.flatMap((s, i) => (s.arcs ?? []).filter((a) => a.label === "in").map((a) => `${said(i)} < ${said(a.head)}`))
     expect(inside).toEqual(["navbar < landing page", "hero < landing page", "headline < hero", "buttons < hero", "footer < landing page"])
+  })
+})
+
+describe("the model decides nesting (PARSER=on)", () => {
+  const sentence =
+    "a [landing page](INSTANCE) with a [navbar](INSTANCE in:landing page), a [hero](INSTANCE in:landing page) with a [headline](INSTANCE in:hero) and [two](COUNT mod:buttons) [buttons](INSTANCE in:hero), and a [footer](INSTANCE in:landing page)"
+
+  test("today's reading puts the headline and buttons in the page; the model moves them into the hero", () => {
+    const { text, spans } = read(sentence)
+    const before = interpretOffline(text)
+    const label = (key: string | null) => before.nodes.find((n) => n.key === key)?.label ?? null
+    const headline = before.nodes.find((n) => n.label === "Headline")!
+    expect(label(headline.parent)).toBe("Landing page")
+
+    const after = nestFromModel(before, text, spans)
+    const byKey = new Map(after.nodes.map((n) => [n.key, n]))
+    const parentLabel = (l: string) => byKey.get(after.nodes.find((n) => n.label === l)!.parent ?? "")?.label ?? null
+    expect(parentLabel("Headline")).toBe("Hero")
+    expect(parentLabel("Buttons")).toBe("Hero")
+    expect(parentLabel("Hero")).toBe("Landing page")
+    expect(parentLabel("Footer")).toBe("Landing page")
+    // The two buttons stay inside their group; only the group moved.
+    expect(after.nodes.filter((n) => n.label === "Button").every((n) => byKey.get(n.parent!)?.label === "Buttons")).toBe(true)
+  })
+
+  test("the hero keeps them when the draft is materialized (it holds text, buttons and groups)", () => {
+    const { text, spans } = read(sentence)
+    const g = nestFromModel(interpretOffline(text), text, spans)
+    const kept = sensibleParents(g, { byHandle: new Map(), byId: new Map() } as never)
+    const hero = kept.nodes.find((n) => n.label === "Hero")!
+    expect(kept.nodes.filter((n) => n.parent === hero.key).map((n) => n.label).sort()).toEqual(["Buttons", "Headline"])
+  })
+
+  test("unsure links and names it can't match leave today's reading alone", () => {
+    const { text, spans } = read(sentence)
+    const unsure = spans.map((s) => ({ ...s, arcs: s.arcs?.map((a) => ({ ...a, confidence: 0.4 })) }))
+    const g = interpretOffline(text)
+    expect(nestFromModel(g, text, unsure)).toBe(g)
+    const other = read("a [pricing table](INSTANCE) with a [toggle](INSTANCE in:pricing table)")
+    expect(nestFromModel(g, other.text, other.spans)).toBe(g)
+  })
+
+  test("never makes a loop", () => {
+    const { text, spans } = read("a [hero](INSTANCE in:headline) with a [headline](INSTANCE in:hero)")
+    const g: EntryGraph = {
+      nodes: [
+        { key: "a", type: "hero", label: "Hero", parent: null, props: {} },
+        { key: "b", type: "text", label: "Headline", parent: "a", props: {} },
+      ],
+      edges: [],
+      suggestions: [],
+      patches: [],
+    }
+    expect(nestFromModel(g, text, spans).nodes.find((n) => n.key === "a")!.parent).toBe(null)
   })
 })

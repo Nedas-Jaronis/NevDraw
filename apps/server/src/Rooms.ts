@@ -32,6 +32,8 @@ import { Classifier } from "./classify/Classifier.ts"
 import { envNumber } from "./env.ts"
 import type { EntryGraph } from "@rtw/shared"
 import type { BoardSummaryItem } from "./refine/prompt.ts"
+import type { TaggedSpan } from "@rtw/parser"
+import { nestFromModel } from "./parse/nesting.ts"
 import { Parser } from "./parse/Parser.ts"
 import { Refiner } from "./refine/Refiner.ts"
 import {
@@ -345,6 +347,8 @@ export const RoomsLive = Layer.effect(
         // The LLM cleanup pass: its pending fiber, and its result for one exact text.
         let llmFiber: Fiber.RuntimeFiber<void> | null = null
         let llmResult: { text: string; graph: EntryGraph } | null = null
+        /** PARSER=on: the model's reading of the latest text (null when it was slow or failed). */
+        let modelReading: { text: string; spans: TaggedSpan[] | null } | null = null
         /** The LLM request in flight and the text it's for: Enter waits for it instead of starting over. */
         let refining: { text: string; result: Deferred.Deferred<EntryGraph | null> } | null = null
         /** The last render parsed an explicit command (edit / wrap / include): no LLM rewrite. */
@@ -441,12 +445,15 @@ export const RoomsLive = Layer.effect(
             // deterministic; otherwise the LLM's reading of this exact text wins over the instant one.
             explicitCommand = r.graph.patches.length > 0 || r.command
             const fromLlm = llmResult?.text === text && !explicitCommand ? keepComputed(llmResult.graph, r.graph) : null
-            const graph = referToExisting(
+            const read = referToExisting(
               // The AI never removes anything the text didn't ask to remove.
               fromLlm && !REMOVAL.test(text) ? { ...fromLlm, patches: fromLlm.patches.filter((p) => !p.remove) } : (fromLlm ?? r.graph),
               handleInfo(room),
               text,
             )
+            // PARSER=on: the model decides what sits inside what; everything else stays as read.
+            const spans = modelReading?.text === text ? modelReading.spans : null
+            const graph = spans ? nestFromModel(read, text, spans) : read
             const source = llmResult?.text === text && !explicitCommand ? "AI" : r.debug.some((d) => d.source === "jev") ? "Jev" : "Instant"
             if (graph.nodes.length || graph.edges.length || graph.patches.length) {
               const sig = JSON.stringify([graph.nodes.map((n) => [n.key, n.type, n.label, n.parent, n.props]), graph.edges, graph.patches])
@@ -584,6 +591,7 @@ export const RoomsLive = Layer.effect(
               if (latest?.text !== text) viewing = null
               latest = { text, anchor }
               if (llmResult?.text !== text) llmResult = null
+              if (parser.mode === "on") modelReading = { text, spans: yield* parser.parse(text) }
               const missing = yield* render(text, anchor)
               const stillLatest = (then: Effect.Effect<unknown>) => Effect.suspend(() => (latest?.text === text ? then : Effect.void))
               if (missing.length > 0 && classifier.enabled) {
@@ -740,7 +748,7 @@ export const RoomsLive = Layer.effect(
             yield* setTyping(false)
             yield* relayout(room)
             // Shadow mode: the model reads the same entry, off to the side; nothing on the board changes.
-            if (parser.mode === "shadow" && draft.text.trim()) yield* Effect.forkDaemon(parser.shadow(draft.text, { nodes: committed, edges: draft.edges }))
+            if (parser.mode !== "off" && draft.text.trim()) yield* Effect.forkDaemon(parser.shadow(draft.text, { nodes: committed, edges: draft.edges }))
           }),
 
           discard: Effect.zipRight(cancelInflight, clearDraft),

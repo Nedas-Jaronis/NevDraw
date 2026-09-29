@@ -84,7 +84,7 @@ export function sensibleParents(graph: EntryGraph, board: BoardView): EntryGraph
     nodes: graph.nodes.map((n) => {
       if (n.parent === null) return n
       const pt = typeOf(n.parent)
-      const holds = pt !== undefined && (REGISTRY[pt].container || EMBEDDABLE.has(n.type))
+      const holds = pt !== undefined && (REGISTRY[pt].container || EMBEDDABLE.has(n.type) || !!REGISTRY[pt].holds?.includes(n.type))
       return holds && !linked(n.key, n.parent) ? n : { ...n, parent: null }
     }),
   }
