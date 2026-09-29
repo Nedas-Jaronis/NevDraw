@@ -45,22 +45,40 @@ function matchNodes(graph: EntryGraph, text: string, spans: readonly TaggedSpan[
     return have.length > words(said(i)).length && have.every((w) => want.has(w)) && words(said(i)).every((w) => have.includes(w))
   }
   /**
-   * The name somewhere in a longer label: "Chat panel to the left of the form", or cut off at the
-   * end where the old reading truncated it ("… we include a h…" for "hero").
+   * How well a longer label holds the name: 3 when it starts with it ("Sidebar on the left"),
+   * 2 when it ends with it, or ends cut off inside it ("… we include a h…" for "hero"), 1 when
+   * the name is in the middle ("Chat panel to the left of the form" for "form"); 0 otherwise.
    */
-  const contains = (label: string, i: number) => {
+  const fit = (label: string, i: number) => {
     const cut = label.endsWith("…")
     const have = words(label.replace(/…$/, ""))
     const name = words(said(i))
-    if (have.length <= name.length || name.length === 0) return false
-    for (let at = 0; at + name.length <= have.length; at++) if (name.every((w, k) => have[at + k] === w)) return true
-    if (!cut) return false
+    if (have.length <= name.length || name.length === 0) return 0
+    const at = (k: number) => name.every((w, j) => have[k + j] === w)
+    if (at(0)) return 3
+    if (at(have.length - name.length)) return 2
     // Truncated: the label's last words are the start of the name.
-    for (let k = Math.min(name.length, have.length); k >= 1; k--) {
-      const tail = have.slice(have.length - k)
-      if (tail.every((w, j) => (j < k - 1 ? name[j] === w : name[j]!.startsWith(w)))) return true
+    if (cut)
+      for (let k = Math.min(name.length, have.length); k >= 1; k--) {
+        const tail = have.slice(have.length - k)
+        if (tail.every((w, j) => (j < k - 1 ? name[j] === w : name[j]!.startsWith(w)))) return 2
+      }
+    for (let k = 1; k + name.length < have.length; k++) if (at(k)) return 1
+    return 0
+  }
+  /** The best loose match: the highest fit, then the shortest label. */
+  const bestFit = (i: number) => {
+    let best: Node | undefined
+    let score = 0
+    for (const n of candidates) {
+      if (used.has(n.key)) continue
+      const f = fit(n.label, i)
+      if (f > score || (f === score && f > 0 && best && n.label.length < best.label.length)) {
+        best = n
+        score = f
+      }
     }
-    return false
+    return best
   }
 
   const used = new Set<string>()
@@ -71,9 +89,8 @@ function matchNodes(graph: EntryGraph, text: string, spans: readonly TaggedSpan[
     spans.forEach((s, i) => {
       if (s.tag !== "INSTANCE" || nodeOf.has(i)) return
       const name = norm(said(i))
-      const hit = candidates.find(
-        (n) => !used.has(n.key) && (norm(n.label) === name || (pass === "described" && describedBy(n.label, i)) || (pass === "contains" && contains(n.label, i))),
-      )
+      const hit =
+        pass === "contains" ? bestFit(i) : candidates.find((n) => !used.has(n.key) && (norm(n.label) === name || (pass === "described" && describedBy(n.label, i))))
       if (!hit) return
       used.add(hit.key)
       nodeOf.set(i, hit.key)

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import type { BoardNode, EntryGraph } from "@rtw/shared"
 import { parse as markup, Tagger, type TaggedSpan } from "@rtw/parser"
 import { existsSync } from "node:fs"
-import { interpretOffline } from "../src/engine/index.ts"
+import { interpret, interpretOffline } from "../src/engine/index.ts"
 import { sensibleParents } from "../src/engine/materialize.ts"
 import { cleanLabel, nestFromModel, placeFromModel, readWithModel, relationOf } from "../src/parse/nesting.ts"
 import { DEFAULT_MODEL_DIR, norm, shadowEntry } from "../src/parse/Parser.ts"
@@ -62,6 +62,20 @@ describe.skipIf(!existsSync(`${DEFAULT_MODEL_DIR}/model.onnx`))("the fetched mod
     const said = (i: number) => text.slice(spans[i]!.start, spans[i]!.end)
     const inside = spans.flatMap((s, i) => (s.arcs ?? []).filter((a) => a.label === "in").map((a) => `${said(i)} < ${said(a.head)}`))
     expect(inside).toEqual(["navbar < landing page", "hero < landing page", "headline < hero", "buttons < hero", "footer < landing page"])
+  })
+
+  test("the room's reading plus the model: a hero on the right side of the sidebar (typo and all)", async () => {
+    const tagger = await Tagger.load(DEFAULT_MODEL_DIR, { int8: false })
+    const text = "a dashboard with a sidebar on the left containing a search bar and 5 nav links. on thr right side of the sidebar we include a hero"
+    const r = interpret({ text, handles: new Map(), peek: () => undefined, memory: new Map() })
+    const g = readWithModel(r.graph, text, await tagger.tag(text))
+    const kids = (label: string) => {
+      const key = g.nodes.find((n) => n.label === label)?.key
+      return g.nodes.filter((n) => n.parent === key).map((n) => n.label)
+    }
+    expect(kids("Dashboard")).toEqual(["Sidebar", "Hero"])
+    expect(kids("Sidebar")).toEqual(["Search bar", "Nav links"])
+    expect(g.nodes.find((n) => n.label === "Hero")!.type).toBe("hero")
   })
 })
 
