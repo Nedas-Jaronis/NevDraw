@@ -4,7 +4,7 @@ import { parse as markup, Tagger, type TaggedSpan } from "@rtw/parser"
 import { existsSync } from "node:fs"
 import { interpretOffline } from "../src/engine/index.ts"
 import { sensibleParents } from "../src/engine/materialize.ts"
-import { cleanLabel, nestFromModel } from "../src/parse/nesting.ts"
+import { cleanLabel, nestFromModel, placeFromModel, readWithModel, relationOf } from "../src/parse/nesting.ts"
 import { DEFAULT_MODEL_DIR, norm, shadowEntry } from "../src/parse/Parser.ts"
 
 /** Spans from markup, as if the model had read them (confidence 1). */
@@ -137,5 +137,77 @@ describe("the model decides nesting (PARSER=on)", () => {
     expect(cleanLabel("sidebar", "Sidebar on the left")).toBe("Sidebar")
     expect(cleanLabel("sidebar", "Sidebar on the right")).toBe("Right sidebar")
     expect(cleanLabel("navbar", "Navy navbar")).toBe(null)
+  })
+})
+
+describe("the model decides placement (PARSER=on)", () => {
+  /** Top-down tree as "label(children)", siblings in draft order. */
+  const tree = (g: EntryGraph, parent: string | null = null): string =>
+    g.nodes
+      .filter((n) => n.parent === parent)
+      .map((n) => {
+        const kids = tree(g, n.key)
+        return kids ? `${n.label}(${kids})` : n.label
+      })
+      .join(", ")
+  const place = (line: string) => {
+    const { text, spans } = read(line)
+    return readWithModel(interpretOffline(text), text, spans)
+  }
+
+  test("positions normalize to a few relations", () => {
+    expect(relationOf("on thr right side", true)).toBe("right")
+    expect(relationOf("to the left", true)).toBe("left")
+    expect(relationOf("next to", true)).toBe("right")
+    expect(relationOf("underneath", true)).toBe("below")
+    expect(relationOf("at the top", false)).toBe("top")
+    expect(relationOf("last", false)).toBe("bottom")
+    expect(relationOf("dashed border", false)).toBe(null)
+  })
+
+  test("'on the right side of the sidebar we include a hero': the hero sits beside the sidebar, in the dashboard", () => {
+    const g = place(
+      "a [dashboard](INSTANCE) with a [sidebar](INSTANCE in:dashboard) [on the left](ATTR mod:sidebar) containing a [search bar](INSTANCE in:sidebar) and [5](COUNT mod:nav links) [nav links](INSTANCE in:sidebar). [on thr right side](ATTR mod:hero) of the [sidebar](REF same:sidebar dst:on thr right side) we include a [hero](INSTANCE)",
+    )
+    const dash = g.nodes.find((n) => n.label === "Dashboard")!
+    const kids = g.nodes.filter((n) => n.parent === dash.key).map((n) => n.label)
+    expect(kids).toEqual(["Sidebar", "Hero"])
+    const side = g.nodes.find((n) => n.label === "Sidebar")!
+    expect(g.nodes.filter((n) => n.parent === side.key).map((n) => n.label)).toEqual(["Search bar", "Nav links"])
+  })
+
+  test("side by side with something that isn't a sidebar: a row around the two, left one first", () => {
+    const g = place(
+      "a [settings page](INSTANCE) with a [form](INSTANCE in:settings page) and a [chat panel](INSTANCE) [to the left](ATTR mod:chat panel) of the [form](REF same:form dst:to the left)",
+    )
+    const row = g.nodes.find((n) => n.props.layout === "row")!
+    expect(row.type).toBe("section")
+    expect(g.nodes.find((n) => n.key === row.parent)!.label).toBe("Settings page")
+    expect(g.nodes.filter((n) => n.parent === row.key).map((n) => n.label)).toEqual(["Chat panel", "Form"])
+  })
+
+  test("edges inside a holder: 'an image on the left and a headline on the right' makes the hero a row", () => {
+    const g = place("a [hero](INSTANCE) with an [image](INSTANCE in:hero) [on the left](ATTR mod:image) and a [headline](INSTANCE in:hero) [on the right](ATTR mod:headline)")
+    const hero = g.nodes.find((n) => n.label === "Hero")!
+    expect(hero.props.layout).toBe("row")
+    expect(g.nodes.filter((n) => n.parent === hero.key).map((n) => n.label)).toEqual(["Image", "Headline"])
+  })
+
+  test("below / above set the order among siblings", () => {
+    const g = place(
+      "a [landing page](INSTANCE) with a [hero](INSTANCE in:landing page) and a [pricing section](INSTANCE in:landing page). add a [faq section](INSTANCE) [below](ATTR mod:faq section) the [pricing section](REF same:pricing section dst:below)",
+    )
+    const page = g.nodes.find((n) => n.label === "Landing page")!
+    expect(g.nodes.filter((n) => n.parent === page.key).map((n) => n.label)).toEqual(["Hero", "Pricing section", "Faq section"])
+  })
+
+  test("an anchor on the board is left to the board: after / before its @handle", () => {
+    const { text, spans } = read("put a [chat panel](INSTANCE) [next to](ATTR mod:chat panel) [@editor](REF dst:next to)")
+    const g = placeFromModel(
+      { nodes: [{ key: "p0", type: "chat", label: "Chat panel", parent: null, props: {} }], edges: [], suggestions: [], patches: [] },
+      text,
+      spans,
+    )
+    expect(g.nodes[0]!.after).toBe("@editor")
   })
 })

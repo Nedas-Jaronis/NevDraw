@@ -299,6 +299,26 @@ function holder(name: string, depth: number): Part[] {
   return [...box, pick(["with", "with", "containing", "that has", "which has", "including"]), ...kids]
 }
 
+// ---------- placement ----------
+
+/** Position relative to another thing: the ATTR span, "of" (when the phrase takes it) stays outside. */
+const SIDE_OF = ["on the right side", "to the right", "right", "on the left side", "to the left", "left", "on the right hand side", "on the left hand side", "to the right side", "to the left side"]
+const NEXT_TO = ["next to", "beside", "alongside", "above", "below", "under", "underneath", "over", "before", "after", "on top of", "beneath"]
+/** Position inside the thing it sits in: its own edge. */
+const EDGES = ["on the left", "on the right", "at the top", "at the bottom", "on the left side", "on the right side", "first", "last"]
+const PLACE_VERBS = ["we include", "put", "add", "place", "we have", "there's", "i want", "include", "show", "we need", "there should be", "add in", "we put"]
+/** Sloppy typing: "thr" for "the", a swapped letter. */
+const sloppy = (phrase: string) => (chance(0.12) ? phrase.replace(/\bthe\b/, pick(["thr", "teh", "th"])) : phrase.split(" ").map(typo).join(" "))
+
+/** "on the right side of the sidebar" / "next to the sidebar": the ATTR plus the anchor parts, linked. */
+function placement(anchor: Sp, anchorParts: Part[], thing: Sp): Part[] {
+  const side = chance(0.55)
+  const pos = T(sloppy(side ? pick(SIDE_OF) : pick(NEXT_TO)), "ATTR")
+  link(pos, "mod", thing)
+  link(anchor, "dst", pos)
+  return [pos, ...(side ? ["of"] : []), ...anchorParts]
+}
+
 // ---------- templates ----------
 
 const templates: (() => Part[])[] = [
@@ -805,6 +825,48 @@ const templates: (() => Part[])[] = [
     const kids = list(() => pick(HOLDERS[name] ?? HOLDERS.card!), between(1, 3))
     for (const k of things(kids)) link(k, "in", box)
     return chance(0.5) ? [pick(["inside", "in"]), ...box, pick(["put", "add", "place", "i want"]), ...kids] : [...box, pick(["should have", "needs", "gets", "has"]), ...kids]
+  },
+  // a dashboard with a sidebar ... . on the right side of the sidebar we include a hero / put a hero to the right of the sidebar
+  () => {
+    const page = np(pick(PAGES), { plural: false })
+    const anchorName = pick([...holderNames, "sidebar", "sidebar", "editor", "chat panel", "map", "image", "video", "form", "table", "chart"])
+    const anchor = chance(0.5) && HOLDERS[anchorName] ? holder(anchorName, 1) : np(anchorName, { plural: false, allowName: false })
+    link(first(anchor), "in", page)
+    const others = chance(0.4) ? list(uiNoun, 1) : []
+    for (const o of things(others)) link(o, "in", page)
+    const thing = np(pick([...holderNames, uiNoun(), "hero", "main content area", "chat panel", "preview"]), { plural: false, allowName: false })
+    const again = T(first(anchor).text, "REF")
+    link(again, "same", first(anchor))
+    const where = placement(again, ["the", again], main(thing))
+    const intro: Part[] = [...opener(), ...page, pick(WITH), ...anchor, ...(others.length ? [pick(["and", ","]), ...others] : []), pick([".", ", and", ". then", ";", ". also"])]
+    return chance(0.5) ? [...intro, ...where, ...(chance(0.3) ? [","] : []), pick(PLACE_VERBS), ...thing] : [...intro, pick(PLACE_VERBS), ...thing, ...where]
+  },
+  // put a chat panel next to @editor / a footer below the pricing section
+  () => {
+    const thing = np(uiNoun(), { plural: false, allowName: false })
+    const anchorParts = ref(uiNoun())
+    const where = placement(main(anchorParts), anchorParts, main(thing))
+    return chance(0.5) ? [...where, ...(chance(0.3) ? [","] : []), pick(PLACE_VERBS), ...thing] : [...opener(), ...thing, ...where]
+  },
+  // a hero with an image on the left and a headline on the right: edges inside what they sit in
+  () => {
+    const name = pick(holderNames)
+    const box = np(name, { plural: false, allowName: false })
+    const n = between(1, 3)
+    const parts: Part[] = [...opener(), ...box, pick(["with", "containing", "that has"])]
+    const edges = [...EDGES].sort(() => rand() - 0.5)
+    for (let i = 0; i < n; i++) {
+      if (i > 0) parts.push(i === n - 1 ? "and" : ",")
+      const kid = np(pick(HOLDERS[name] ?? HOLDERS.card!), { plural: false, allowName: false })
+      link(kid, "in", box)
+      parts.push(...kid)
+      if (chance(0.8)) {
+        const edge = T(sloppy(edges[i % edges.length]!), "ATTR")
+        link(edge, "mod", kid)
+        parts.push(edge)
+      }
+    }
+    return parts
   },
   // noise: nothing to tag
   () => [pick(["big brand moment", "hmm", "ok so", "let me think", "not sure yet", "something like this", "wait", "undo that", "looks good", "nice", "hello", "and then", "with the", "maybe later"])],

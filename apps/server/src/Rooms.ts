@@ -33,7 +33,7 @@ import { envNumber } from "./env.ts"
 import type { EntryGraph } from "@rtw/shared"
 import type { BoardSummaryItem } from "./refine/prompt.ts"
 import type { TaggedSpan } from "@rtw/parser"
-import { nestFromModel } from "./parse/nesting.ts"
+import { readWithModel } from "./parse/nesting.ts"
 import { Parser } from "./parse/Parser.ts"
 import { Refiner } from "./refine/Refiner.ts"
 import {
@@ -451,9 +451,9 @@ export const RoomsLive = Layer.effect(
               handleInfo(room),
               text,
             )
-            // PARSER=on: the model decides what sits inside what; everything else stays as read.
+            // PARSER=on: the model decides what sits inside what and where; everything else stays as read.
             const spans = modelReading?.text === text ? modelReading.spans : null
-            const graph = spans ? nestFromModel(read, text, spans) : read
+            const graph = spans ? readWithModel(read, text, spans) : read
             const source = llmResult?.text === text && !explicitCommand ? "AI" : r.debug.some((d) => d.source === "jev") ? "Jev" : "Instant"
             if (graph.nodes.length || graph.edges.length || graph.patches.length) {
               const sig = JSON.stringify([graph.nodes.map((n) => [n.key, n.type, n.label, n.parent, n.props]), graph.edges, graph.patches])

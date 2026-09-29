@@ -221,3 +221,14 @@ a [landing page](INSTANCE) with a [navbar](INSTANCE in:landing page), a [hero](I
 a [pricing section](INSTANCE) with [3](COUNT mod:pricing cards) [pricing cards](INSTANCE in:pricing section), each with a [price](INSTANCE in:pricing cards), a [feature list](INSTANCE in:pricing cards) and a [buy button](INSTANCE in:pricing cards)
 a [dashboard](INSTANCE) with a [sidebar](INSTANCE in:dashboard) [on the left](ATTR mod:sidebar) containing a [search bar](INSTANCE in:sidebar) and [5](COUNT mod:nav links) [nav links](INSTANCE in:sidebar)
 a [kanban board](INSTANCE) with [three](COUNT mod:columns) [columns](INSTANCE in:kanban board): [todo](NAME mod:columns), [doing](NAME mod:columns) and [done](NAME mod:columns)
+# Placement. The first line was typed in the app on 2026-09-29; the rest written by hand the same day.
+# A position relative to something is an ATTR that modifies the thing placed, with the anchor linked dst to it
+# ("of" stays outside); a position inside something (its own edge) is an ATTR with no anchor.
+a [dashboard](INSTANCE) with a [sidebar](INSTANCE in:dashboard) [on the left](ATTR mod:sidebar) containing a [search bar](INSTANCE in:sidebar) and [5](COUNT mod:nav links) [nav links](INSTANCE in:sidebar). [on thr right side](ATTR mod:hero) of the [sidebar](REF same:sidebar dst:on thr right side) we include a [hero](INSTANCE)
+a [dashboard](INSTANCE) with a [sidebar](INSTANCE in:dashboard) and a [hero](INSTANCE in:dashboard) [to the right](ATTR mod:hero) of the [sidebar](REF same:sidebar dst:to the right)
+put a [chat panel](INSTANCE) [next to](ATTR mod:chat panel) [@editor](REF dst:next to)
+a [hero](INSTANCE) with an [image](INSTANCE in:hero) [on the left](ATTR mod:image) and a [headline](INSTANCE in:hero) [on the right](ATTR mod:headline)
+a [landing page](INSTANCE) with a [hero](INSTANCE in:landing page) and a [pricing section](INSTANCE in:landing page). add a [faq section](INSTANCE) [below](ATTR mod:faq section) the [pricing section](REF same:pricing section dst:below)
+[underneath](ATTR mod:newsletter signup) the [footer](REF dst:underneath) we have a [newsletter signup](INSTANCE)
+a [settings page](INSTANCE) with a [profile card](INSTANCE in:settings page) [on the left](ATTR mod:profile card) and a [form](INSTANCE in:settings page) [on the right](ATTR mod:form)
+a [video player](INSTANCE) with a [chat](INSTANCE) [beside](ATTR mod:chat) [it](REF same:video player dst:beside)

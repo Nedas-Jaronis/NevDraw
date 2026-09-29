@@ -239,14 +239,14 @@ function Body({ item, tree, compact = false }: { item: Item; tree: Tree; compact
       )
     }
     // A hero or navbar the text filled ("a hero with a headline and two buttons"): its own parts
-    // replace the placeholder, laid out inside its box (a hero centered, a navbar in a row).
+    // replace the placeholder, laid out inside its box (a hero stacked unless it's a row, a navbar in a row).
     const filled = embedded.length > 0 && (node.type === "hero" || node.type === "navbar") && embedded.some((k) => !EMBEDDABLE_ONLY.has(k.node.type))
     if (filled)
       return (
         <div>
           <Title node={node} showAuthor={showAuthor} compact={compact} />
           <div
-            className={`mt-2.5 flex gap-2 rounded-xl bg-[var(--a)]/[0.08] p-3 ${node.type === "hero" ? "flex-col items-stretch" : "flex-row flex-wrap items-center [&>*]:min-w-[120px] [&>*]:flex-1"}`}
+            className={`mt-2.5 flex gap-2 rounded-xl bg-[var(--a)]/[0.08] p-3 ${node.type === "hero" && node.props.layout !== "row" ? "flex-col items-stretch" : "flex-row flex-wrap items-center [&>*]:min-w-[120px] [&>*]:flex-1"}`}
           >
             <AnimatePresence initial={false}>
               {embedded.map((k) => (
