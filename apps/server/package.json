@@ -11,6 +11,7 @@
     "@effect/platform-bun": "^0.91.2",
     "@effect/sql": "0.52.1",
     "@effect/sql-sqlite-bun": "0.53.0",
+    "@rtw/parser": "workspace:*",
     "@rtw/shared": "workspace:*",
     "@typesafe-ai/sdk": "0.6.0",
     "effect": "^3.22.2"

@@ -32,6 +32,7 @@ import { Classifier } from "./classify/Classifier.ts"
 import { envNumber } from "./env.ts"
 import type { EntryGraph } from "@rtw/shared"
 import type { BoardSummaryItem } from "./refine/prompt.ts"
+import { Parser } from "./parse/Parser.ts"
 import { Refiner } from "./refine/Refiner.ts"
 import {
   type BoardView,
@@ -135,6 +136,7 @@ export const RoomsLive = Layer.effect(
     const store = yield* BoardStore
     const classifier = yield* Classifier
     const refiner = yield* Refiner
+    const parser = yield* Parser
     // Live probe 2026-09-26 (gpt-oss-120b on Cerebras): p50 ≈ 360–470 ms.
     const llmDebounce = envNumber("LLM_DEBOUNCE_MS") ?? 900
     const commitWait = envNumber("LLM_COMMIT_WAIT_MS") ?? 2500
@@ -737,6 +739,8 @@ export const RoomsLive = Layer.effect(
             yield* sendTo(room, user.id, new DraftCleared({ userId: user.id }))
             yield* setTyping(false)
             yield* relayout(room)
+            // Shadow mode: the model reads the same entry, off to the side; nothing on the board changes.
+            if (parser.mode === "shadow" && draft.text.trim()) yield* Effect.forkDaemon(parser.shadow(draft.text, { nodes: committed, edges: draft.edges }))
           }),
 
           discard: Effect.zipRight(cancelInflight, clearDraft),
