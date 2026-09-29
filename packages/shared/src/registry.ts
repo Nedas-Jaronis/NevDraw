@@ -75,11 +75,6 @@ export type RegistryEntry = {
   readonly describe: string
   /** Lowercase phrases the offline keyword classifier looks for. Longer phrases win ties. */
   readonly keywords: readonly string[]
-  /**
-   * For leaves that still hold a few parts of their own when the text says so ("a hero with a
-   * headline and two buttons"): the types that may go inside. Containers hold anything.
-   */
-  readonly holds?: readonly NodeType[]
 }
 
 const ui = (describe: string, keywords: string[], container = false, defaultLayout: Layout = "stack"): RegistryEntry => ({
@@ -100,21 +95,15 @@ const arch = (describe: string, keywords: string[]): RegistryEntry => ({
 export const REGISTRY: { readonly [K in NodeType]: RegistryEntry } = {
   page: ui("A whole screen or page of an app or website, such as a landing page, dashboard or settings page", ["page", "screen", "landing", "dashboard", "homepage", "home page", "view", "route"], true),
   section: ui("A region of a page that groups other elements, such as features, pricing, testimonials, footer or sidebar", ["section", "area", "panel", "sidebar", "footer", "features", "testimonials", "faq", "pricing", "wrapper", "container", "group", "block"], true),
-  navbar: {
-    ...ui("A navigation bar, header or menu across the top of a page", ["navbar", "nav bar", "navigation", "nav", "header", "menu", "top bar", "topbar"], false, "row"),
-    holds: ["text", "button", "input", "image", "search", "avatar", "select", "toggle", "link", "section", "tabs"],
-  },
-  hero: {
-    ...ui("The large introductory banner at the top of a page with a headline and call to action", ["hero", "hero area", "hero section", "hero banner", "hero image", "banner", "jumbotron", "splash"]),
-    holds: ["text", "button", "input", "image", "video", "search", "avatar", "select", "toggle", "stat", "list", "section", "countdown", "link"],
-  },
+  navbar: ui("A navigation bar, header or menu across the top of a page", ["navbar", "nav bar", "navigation", "nav", "header", "menu", "top bar", "topbar"], false, "row"),
+  hero: ui("The large introductory banner at the top of a page with a headline and call to action", ["hero", "hero area", "hero section", "hero banner", "hero image", "banner", "jumbotron", "splash"]),
   form: ui("A form that collects several inputs, such as sign up, log in, checkout or contact", ["form", "signup", "sign up", "login", "log in", "sign in", "register", "checkout form", "contact form"], true),
   input: ui("A single text input field, such as email, password or name", ["input", "field", "text field", "textbox", "email field", "password"]),
   button: ui("A single button or call-to-action link", ["button", "cta", "call to action", "submit", "link button"], false, "row"),
   card: ui("A self-contained card or tile, such as a pricing card or profile card", ["card", "tile", "pricing card", "profile card"], true),
   list: ui("A list or feed of repeated items, possibly a list of some other element", ["list", "feed", "timeline", "items", "results"]),
   table: ui("A table or grid of data with rows and columns, possibly a table of some other element", ["table", "grid view", "spreadsheet", "data table", "pricing table"]),
-  image: ui("A still image, logo, photo, illustration or gallery", ["image", "photo", "picture", "logo", "illustration", "gallery"]),
+  image: ui("A still image, logo, photo, illustration or gallery", ["image", "photo", "picture", "logo", "icon", "illustration", "gallery"]),
   modal: ui("A dialog, modal, popup or drawer that appears over the page", ["modal", "dialog", "popup", "pop up", "overlay", "drawer"], true),
   text: ui("A block of text, heading, paragraph or caption", ["text", "paragraph", "copy", "title", "heading", "headline", "subtitle", "caption", "description"]),
   timer: ui("A countdown timer for a duration, such as a 25 minute focus or pomodoro timer", ["timer", "timers", "pomodoro", "focus timer"]),

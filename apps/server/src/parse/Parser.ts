@@ -16,7 +16,7 @@ import { env, envNumber } from "../env.ts"
  *   on      the model decides what sits inside what in every draft (parse/nesting.ts); everything
  *           else still comes from today's reading. Commits are shadow-logged too
  *
- * Default: shadow when the model files are there (`bun run fetch-model`), off otherwise.
+ * Default: on when the model files are there (`bun run fetch-model`), off otherwise.
  */
 export type ParserMode = "off" | "shadow" | "on"
 
@@ -50,7 +50,7 @@ export const ParserFromEnv = Layer.effect(
   Effect.gen(function* () {
     const dir = env("MODEL_DIR") ?? DEFAULT_MODEL_DIR
     const asked = env("PARSER")
-    const mode: ParserMode = asked === "off" || asked === "shadow" || asked === "on" ? asked : existsSync(`${dir}/model.onnx`) ? "shadow" : "off"
+    const mode: ParserMode = asked === "off" || asked === "shadow" || asked === "on" ? asked : existsSync(`${dir}/model.onnx`) ? "on" : "off"
     if (mode === "off") {
       console.log(asked ? "[parser] off" : "[parser] off: no model in models/parser (run `bun run fetch-model`)")
       return disabled

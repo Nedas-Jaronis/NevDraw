@@ -389,7 +389,8 @@ export function Title({ node, showAuthor, compact }: { node: BoardNode; showAuth
   const note = node.props.note
   /** Per viewer: whether this element's note is open. */
   const [open, setOpen] = useState(false)
-  const canNote = actions !== null && node.handle !== undefined
+  // A text element's note is its content, shown and edited in its body.
+  const canNote = actions !== null && node.handle !== undefined && node.type !== "text"
   return (
     <>
       <div className="frame-title flex items-center gap-2">
