@@ -5,6 +5,7 @@ import { resolve } from "node:path"
 import { BoardStore, sqliteStore } from "./BoardStore.ts"
 import { ClassifierLive } from "./classify/Classifier.ts"
 import { type Jev, JevFromEnv } from "./classify/Jev.ts"
+import { type Parser, ParserFromEnv } from "./parse/Parser.ts"
 import { type Refiner, RefinerFromEnv } from "./refine/Refiner.ts"
 import { env } from "./env.ts"
 import { RoomsLive } from "./Rooms.ts"
@@ -27,12 +28,14 @@ export const makeApp = (options: {
   store?: Layer.Layer<BoardStore>
   jev?: Layer.Layer<Jev>
   refiner?: Layer.Layer<Refiner>
+  parser?: Layer.Layer<Parser>
 }) =>
   HttpServer.serve(router).pipe(
     HttpServer.withLogAddress,
     Layer.provide(RoomsLive),
     Layer.provide(ClassifierLive.pipe(Layer.provide(options.jev ?? JevFromEnv))),
     Layer.provide(options.refiner ?? RefinerFromEnv),
+    Layer.provide(options.parser ?? ParserFromEnv),
     Layer.provide(options.store ?? sqliteStore(env("DB_PATH") ?? DEFAULT_DB_PATH)),
     // Opening a public tunnel ("Go remote") takes ~10 s: longer than Bun's default idle timeout.
     Layer.provideMerge(BunHttpServer.layer({ port: options.port, idleTimeout: 120 })),

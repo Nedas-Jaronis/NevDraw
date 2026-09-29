@@ -4,11 +4,12 @@ import { Effect, Either, type Layer, ManagedRuntime } from "effect"
 import { makeApp } from "../src/app.ts"
 import { type BoardStore, makeMemoryStore } from "../src/BoardStore.ts"
 import { type Jev, JevDisabled } from "../src/classify/Jev.ts"
+import { type Parser, ParserDisabled } from "../src/parse/Parser.ts"
 import { type Refiner, RefinerDisabled } from "../src/refine/Refiner.ts"
 
 /** Boots the real server on a random port for protocol-level tests. */
 export async function startServer(
-  options: { store?: Layer.Layer<BoardStore>; jev?: Layer.Layer<Jev>; refiner?: Layer.Layer<Refiner> } = {},
+  options: { store?: Layer.Layer<BoardStore>; jev?: Layer.Layer<Jev>; refiner?: Layer.Layer<Refiner>; parser?: Layer.Layer<Parser> } = {},
 ) {
   const runtime = ManagedRuntime.make(
     makeApp({
@@ -16,6 +17,7 @@ export async function startServer(
       store: options.store ?? makeMemoryStore(),
       jev: options.jev ?? JevDisabled,
       refiner: options.refiner ?? RefinerDisabled,
+      parser: options.parser ?? ParserDisabled,
     }),
   )
   const address = await runtime.runPromise(Effect.map(HttpServer.HttpServer, (s) => s.address))

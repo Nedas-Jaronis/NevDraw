@@ -1,6 +1,6 @@
 import { type BoardNode, FOOTER_RE, formKindOf, itemsOf, type NodeType, parseColor, REGISTRY, SIDEBAR_RE } from "@rtw/shared"
-import { type CSSProperties, type ReactNode, useEffect, useRef, useState } from "react"
-import { ImageSlot } from "./images.tsx"
+import { type CSSProperties, type ReactNode, useContext, useEffect, useRef, useState } from "react"
+import { BoardActions, ImageSlot } from "./images.tsx"
 import { Title } from "./NodeView.tsx"
 import { amount, clock, durationSeconds, onColor, progressOf, route, statValue } from "./values.ts"
 
@@ -23,6 +23,65 @@ export function Wire({ node, showAuthor, compact, draft }: { node: BoardNode; sh
 }
 
 // ── shared bits ─────────────────────────────────────────────────────────────
+
+/**
+ * A text element shows its words: click to write them (saved as the element's note, so
+ * everyone sees them). Empty, it's the usual placeholder lines; drafts aren't editable.
+ */
+function TextContent({ node, editable }: { node: BoardNode; editable: boolean }) {
+  const actions = useContext(BoardActions)
+  const text = node.props.note ?? ""
+  const [editing, setEditing] = useState(false)
+  const [value, setValue] = useState(text)
+  const canEdit = editable && actions !== null
+  const save = () => {
+    setEditing(false)
+    if (value.trim() !== text.trim()) actions?.setNote(node.id, value.trim())
+  }
+  if (editing)
+    return (
+      <textarea
+        data-ui
+        autoFocus
+        value={value}
+        rows={Math.min(10, Math.max(2, value.split("\n").length))}
+        placeholder="Write the text…"
+        onPointerDown={(e) => e.stopPropagation()}
+        onChange={(e) => setValue(e.target.value)}
+        onBlur={save}
+        onKeyDown={(e) => {
+          e.stopPropagation()
+          if (e.key === "Escape" || ((e.metaKey || e.ctrlKey) && e.key === "Enter")) save()
+        }}
+        className="w-full resize-none rounded-md bg-[var(--ink)]/[0.04] px-1.5 py-1 text-[13px] leading-snug text-[var(--ink)] outline-none placeholder:text-[var(--muted)]"
+      />
+    )
+  const open = canEdit
+    ? {
+        "data-ui": true,
+        role: "button",
+        tabIndex: 0,
+        title: "Click to edit the text",
+        onClick: (e: React.MouseEvent) => {
+          e.stopPropagation()
+          setValue(text)
+          setEditing(true)
+        },
+      }
+    : {}
+  if (text)
+    return (
+      <div {...open} className={`whitespace-pre-wrap break-words text-[13px] leading-snug text-[var(--ink)] ${canEdit ? "cursor-text rounded-md hover:bg-[var(--ink)]/[0.04]" : ""}`}>
+        {text}
+      </div>
+    )
+  return (
+    <div {...open} className={`flex flex-col gap-1.5 ${canEdit ? "cursor-text rounded-md py-1 hover:bg-[var(--ink)]/[0.04]" : ""}`}>
+      <div className={`h-1.5 w-full ${bar}`} />
+      <div className={`h-1.5 w-4/5 ${bar}`} />
+    </div>
+  )
+}
 
 const bar = "rounded-full bg-[var(--ink)]/10"
 const field = "rounded-lg border border-[var(--ink)]/15 bg-[var(--panel)]"
@@ -417,12 +476,7 @@ function Sketch({ node, editable }: { node: BoardNode; editable: boolean }) {
     case "list":
       return <Collection node={node} table={false} />
     case "text":
-      return (
-        <div className="flex flex-col gap-1.5">
-          <div className={`h-1.5 w-full ${bar}`} />
-          <div className={`h-1.5 w-4/5 ${bar}`} />
-        </div>
-      )
+      return <TextContent node={node} editable={editable} />
     case "timer":
       return <Timer seconds={durationSeconds(label)} />
     case "stopwatch":
@@ -601,6 +655,14 @@ function Sketch({ node, editable }: { node: BoardNode; editable: boolean }) {
         </div>
       )
     case "link":
+      // A nav / menu / footer link is one line of link; a preview or bookmark is the card.
+      if (!/preview|bookmark|card|url/i.test(label))
+        return (
+          <div className="flex items-center gap-2 text-[12px] text-[var(--a)]">
+            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--a)]" />
+            <span className={`h-1.5 w-20 ${bar}`} />
+          </div>
+        )
       return (
         <div className={`flex items-center gap-2 p-1.5 ${field}`}>
           <span className="h-7 w-7 rounded-md bg-[var(--a)]/20" />

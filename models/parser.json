@@ -1,0 +1,32 @@
+{
+  "release": "parser-v3",
+  "repo": "Nedas-Jaronis/NevDraw",
+  "trainedFrom": "ettin32m-place",
+  "files": [
+    {
+      "name": "model.onnx",
+      "size": 129604624,
+      "sha256": "461c3d9621be8bb48d277ede57da80d99f9bb6e928c805066e9f5d442edc7ee8"
+    },
+    {
+      "name": "tokenizer.json",
+      "size": 3583228,
+      "sha256": "6c8aaa9a542084f2457eab775d4eeb51f92a70c0fd9de28d5edb0ddec3c08d30"
+    },
+    {
+      "name": "tokenizer_config.json",
+      "size": 380,
+      "sha256": "fb54f027372062b2ca52282efb04d178a8b57167a00cd8f4e816515823a2c016"
+    },
+    {
+      "name": "tagger.json",
+      "size": 622,
+      "sha256": "2767ff155d4e060416922257eb1dc8f111b0f6b838b618a18d26f6f5c76833f4"
+    },
+    {
+      "name": "wordcheck.json",
+      "size": 1311,
+      "sha256": "c173940e9c20a57a9bae785c9a1bfe1286dab592378a11ce9656f0230f92a54a"
+    }
+  ]
+}

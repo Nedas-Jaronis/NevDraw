@@ -71,7 +71,7 @@ const EMBEDDABLE = new Set<string>(["image", "video", "chart", "map", "avatar"])
 
 /**
  * Connecting isn't nesting: an element never goes inside something it has an
- * arrow to, nor inside an element that can't hold children (the LLM
+ * arrow to, nor inside an architecture element that can't hold children (the LLM
  * sometimes answers "parent: @servers-stack" for "connect a cache to
  * @servers-stack", which would swallow the new element).
  */
@@ -84,7 +84,10 @@ export function sensibleParents(graph: EntryGraph, board: BoardView): EntryGraph
     nodes: graph.nodes.map((n) => {
       if (n.parent === null) return n
       const pt = typeOf(n.parent)
-      const holds = pt !== undefined && (REGISTRY[pt].container || EMBEDDABLE.has(n.type))
+      // Any interface element can hold interface parts when the text says so ("a button with a text box");
+      // architecture elements hold only what containers and media rules allow.
+      const bothUi = pt !== undefined && REGISTRY[pt].lane === "ui" && REGISTRY[n.type].lane === "ui"
+      const holds = pt !== undefined && (REGISTRY[pt].container || EMBEDDABLE.has(n.type) || bothUi)
       return holds && !linked(n.key, n.parent) ? n : { ...n, parent: null }
     }),
   }
