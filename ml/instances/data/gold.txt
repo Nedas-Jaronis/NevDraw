@@ -215,3 +215,9 @@ add [more padding](ATTR mod:cards) to the [cards](REF)
 [5](COUNT mod:server stack) [server stack](INSTANCE) with [2](COUNT mod:load balancers) [load balancers](INSTANCE) and [5](COUNT mod:independent data bases) [independent data bases](INSTANCE).
 # Two groups share a head noun: the reference has to name which one (written by hand, same day).
 an [api](INSTANCE), [3](COUNT mod:user databases) [user databases](INSTANCE) and [2](COUNT mod:analytics databases) [analytics databases](INSTANCE). the [api](REF same:api src:writes to) [writes to](RELATION) the [analytics databases](REF same:analytics databases dst:writes to)
+# Nesting: parts inside parts. The first line was typed in the app on 2026-09-28; the rest are from the test list,
+# written by hand the same day. ", and a footer" after a nested list goes back out to the page.
+a [landing page](INSTANCE) with a [navbar](INSTANCE in:landing page), a [hero](INSTANCE in:landing page) with a [headline](INSTANCE in:hero) and [two](COUNT mod:buttons) [buttons](INSTANCE in:hero), and a [footer](INSTANCE in:landing page)
+a [pricing section](INSTANCE) with [3](COUNT mod:pricing cards) [pricing cards](INSTANCE in:pricing section), each with a [price](INSTANCE in:pricing cards), a [feature list](INSTANCE in:pricing cards) and a [buy button](INSTANCE in:pricing cards)
+a [dashboard](INSTANCE) with a [sidebar](INSTANCE in:dashboard) [on the left](ATTR mod:sidebar) containing a [search bar](INSTANCE in:sidebar) and [5](COUNT mod:nav links) [nav links](INSTANCE in:sidebar)
+a [kanban board](INSTANCE) with [three](COUNT mod:columns) [columns](INSTANCE in:kanban board): [todo](NAME mod:columns), [doing](NAME mod:columns) and [done](NAME mod:columns)

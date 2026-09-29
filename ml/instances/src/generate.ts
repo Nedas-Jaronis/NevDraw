@@ -91,6 +91,8 @@ function main(parts: Part[]): Sp {
   const sp = parts.filter(isSp)
   return sp.findLast((s) => s.tag === "INSTANCE") ?? sp.findLast((s) => s.tag === "REF") ?? sp.at(-1)!
 }
+/** The container a nested phrase starts with: "a hero with a headline" → hero. */
+const first = (parts: Part[]): Sp => parts.filter(isSp).find((s) => s.tag === "INSTANCE") ?? main(parts)
 /** Every new thing in a list of noun phrases. */
 const things = (parts: Part[]) => parts.filter(isSp).filter((s) => s.tag === "INSTANCE")
 function link(dep: Sp | Part[], label: Link, head: Sp | Part[]): void {
@@ -258,6 +260,43 @@ function refTo(g: Group, all: Group[]): string {
   if (r < 0.75) return pick(heads)
   const h = pick(heads)
   return RESPELL[h] ? pick(RESPELL[h]!) : h
+}
+
+// ---------- nesting ----------
+
+const PAGES = ["landing page", "dashboard", "settings page", "pricing page", "home page", "signup page", "app screen", "website", "profile page", "checkout page", "admin panel", "blog page", "portfolio site"]
+/** Parts that hold other parts, and what usually goes in them. */
+const HOLDERS: Record<string, string[]> = {
+  hero: ["headline", "subtitle", "button", "cta button", "image", "video", "email input", "badge", "logo cloud", "3d globe"],
+  navbar: ["logo", "link", "nav link", "search bar", "avatar", "signup button", "login button", "dark mode toggle", "dropdown"],
+  footer: ["link", "link column", "newsletter signup", "social icon", "copyright text", "logo"],
+  sidebar: ["nav link", "avatar", "search bar", "menu", "toggle", "progress bar"],
+  "pricing card": ["price", "feature list", "buy button", "badge", "plan name"],
+  card: ["image", "title", "description", "button", "avatar", "badge", "rating"],
+  "features section": ["feature card", "icon", "headline", "image"],
+  "testimonials section": ["testimonial card", "avatar", "quote", "rating"],
+  form: ["email input", "password input", "name field", "submit button", "checkbox", "dropdown"],
+  modal: ["title", "text", "button", "close button", "form"],
+  header: ["logo", "link", "button", "search bar"],
+  "stats section": ["stat card", "counter", "chart"],
+  "contact section": ["contact form", "map", "email input", "button"],
+}
+const holderNames = Object.keys(HOLDERS)
+
+/** "a hero with a headline and two buttons": a part plus what's inside it (inner list joined with "and"). */
+function holder(name: string, depth: number): Part[] {
+  const box = np(name, { plural: false, allowName: false })
+  const n = between(1, 3)
+  const kids: Part[] = []
+  for (let i = 0; i < n; i++) {
+    if (i > 0) kids.push(i === n - 1 ? "and" : ",")
+    const kidName = pick(HOLDERS[name] ?? HOLDERS.card!)
+    // Sometimes a part inside holds parts of its own: "a card with a form with an email input".
+    const kid = depth < 2 && HOLDERS[kidName] && chance(0.3) ? holder(kidName, depth + 1) : np(kidName, { plural: chance(0.35), allowName: false })
+    link(first(kid), "in", box)
+    kids.push(...kid)
+  }
+  return [...box, pick(["with", "with", "containing", "that has", "which has", "including"]), ...kids]
 }
 
 // ---------- templates ----------
@@ -725,6 +764,47 @@ const templates: (() => Part[])[] = [
     link(again, "obj", act)
     link(again, "in", other)
     return [...parts, act, "the", again, pick(["inside", "into", "in"]), "the", other]
+  },
+  // a landing page with a navbar, a hero with a headline and two buttons, and a footer
+  () => {
+    const page = np(pick(PAGES), { plural: false })
+    const n = between(2, 4)
+    const parts: Part[] = [...opener(), ...page, pick(WITH)]
+    let nestedBefore = false
+    for (let i = 0; i < n; i++) {
+      const nested: boolean = chance(0.55) || (i === n - 1 && !nestedBefore)
+      // After a part with its own list, ", and" / ", plus" / ", then" goes back out to the page.
+      if (i > 0) parts.push(...(nestedBefore ? pick([[",", "and"], [",", "plus"], [",", "and", "then"], [",", "as well as"], [",", "and also"]]) : i === n - 1 ? pick([["and"], [",", "and"]]) : [","]))
+      const part = nested ? holder(pick(holderNames), 1) : np(pick([...holderNames, uiNoun()]), { allowName: false })
+      link(first(part), "in", page)
+      parts.push(...part)
+      nestedBefore = nested
+    }
+    return parts
+  },
+  // 3 pricing cards, each with a price and a buy button
+  () => {
+    const name = pick(["pricing card", "card", "feature card", "testimonial card", "stat card", "product card", "team member card"])
+    const many = T(plural(name), "INSTANCE")
+    const count = T(String(between(2, 6)), "COUNT")
+    link(count, "mod", many)
+    const kids = Array.from({ length: between(1, 3) }, () => np(pick(HOLDERS[name] ?? HOLDERS.card!), { plural: false, allowName: false }))
+    const parts: Part[] = []
+    kids.forEach((k, i) => {
+      if (i > 0) parts.push(i === kids.length - 1 ? "and" : ",")
+      link(k, "in", many)
+      parts.push(...k)
+    })
+    const lead: Part[] = chance(0.5) ? [...opener(), count, many] : [...opener(), ...(() => { const page = np(pick(PAGES), { plural: false }); link(many, "in", page); return [...page, pick(WITH)] })(), count, many]
+    return [...lead, pick([[",", "each with"], ["that each have"], [",", "each containing"], ["with"]]).flat(), ...parts].flat() as Part[]
+  },
+  // inside the hero put a headline and a button / the hero should have a video and a cta
+  () => {
+    const box = ref(pick(holderNames))
+    const name = main(box).text.replace(/^[@{]|}$/g, "").replace(/-/g, " ")
+    const kids = list(() => pick(HOLDERS[name] ?? HOLDERS.card!), between(1, 3))
+    for (const k of things(kids)) link(k, "in", box)
+    return chance(0.5) ? [pick(["inside", "in"]), ...box, pick(["put", "add", "place", "i want"]), ...kids] : [...box, pick(["should have", "needs", "gets", "has"]), ...kids]
   },
   // noise: nothing to tag
   () => [pick(["big brand moment", "hmm", "ok so", "let me think", "not sure yet", "something like this", "wait", "undo that", "looks good", "nice", "hello", "and then", "with the", "maybe later"])],
