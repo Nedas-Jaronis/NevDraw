@@ -6,3 +6,6 @@ dist/
 data/
 *.sqlite
 *.sqlite-*
+
+# Parser model files: `bun run fetch-model` downloads them (models/parser.json pins the version)
+models/parser/
